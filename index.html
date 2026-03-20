@@ -325,24 +325,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 
 <!-- BOOT -->
 <div id="boot">
-  <!-- White logo card, exactly like the orgchart app -->
-  <div class="boot-logo-card">
-    <svg width="180" height="52" viewBox="0 0 180 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <!-- Pin icon -->
-      <g transform="translate(0,2)">
-        <!-- outer pin shape -->
-        <ellipse cx="22" cy="18" rx="13" ry="13" fill="none" stroke="#0a1f3c" stroke-width="2.5"/>
-        <!-- inner circle -->
-        <circle cx="22" cy="18" r="5.5" fill="#0a1f3c"/>
-        <!-- pin tail -->
-        <path d="M22 31 L16 44 L22 39 L28 44 Z" fill="#0a1f3c"/>
-      </g>
-      <!-- DIHAG text -->
-      <text x="45" y="26" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="22" fill="#0a1f3c" letter-spacing="-0.5">DIHAG</text>
-      <!-- subtitle -->
-      <text x="45" y="40" font-family="Inter,system-ui,sans-serif" font-weight="400" font-size="7.5" fill="#8fa0b5" letter-spacing="0.12em">INTEGRATED FOUNDRY GROUP</text>
-    </svg>
-  </div>
+  <div class="boot-logo-card"><img src="data:image/png;base64,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" alt="DIHAG" style="height:72px;width:auto;display:block;"/></div>
   <div class="boot-subtitle">DMS · Document Management · SharePoint</div>
   <div class="boot-spinner" id="boot-spinner"></div>
   <div id="boot-txt">Initialisiere Authentifizierung…</div>
@@ -353,17 +336,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 <!-- APP -->
 <div id="app">
   <header>
-    <div class="hdr-brand">
-      <svg width="90" height="26" viewBox="0 0 90 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <g transform="translate(0,1)">
-          <ellipse cx="11" cy="9" rx="6.5" ry="6.5" fill="none" stroke="white" stroke-width="1.8"/>
-          <circle cx="11" cy="9" r="2.8" fill="white"/>
-          <path d="M11 15.5 L8 22 L11 19.5 L14 22 Z" fill="white"/>
-        </g>
-        <text x="22" y="17" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="13" fill="white" letter-spacing="-0.3">DIHAG</text>
-        <text x="22" y="24" font-family="Inter,system-ui,sans-serif" font-weight="400" font-size="5.5" fill="rgba(255,255,255,0.45)" letter-spacing="0.08em">FOUNDRY GROUP</text>
-      </svg>
-    </div>
+    <div class="hdr-brand"><img src="data:image/png;base64,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U47ZPzS1fXPh4tUSi7htGds3t18dmeJCbliXG5usu7axocs7efb6ts2FsWK95rMNHdk927tPnBl6cO+mMxeuX59spByjo8398HKxLefks876zuwv3h7IeXbI+Lr2dMo1lESuTX3GN3XnHIu++eurQcSFEDvv6Kw3GItFpc5si3YVUucHil3tadPA23rbMyl7VWc7i5+GT8PR399/7NixdevWPfnkkyt6QWO6l6CU0lmh1ohsi1CCqw2W9xyt7OZUmjgBizgXwjRIGPFs2m79qVwNvLRNCC7XQi9tkWZWjGIexdxL2/qJUkrAgBQCAIVUuRoWss5MlirXAi9tE4wrtTCTMmdIwoI7moHyll90IRg0XdDTUkpb/1dF84xbOe+HZgtm+hYvPU2k857bWnfpnehRtkU1IzYN2qRZoLlpPuvqwXnPafUny6SWqQeDUtOsE03zJShkZ5FW/WilVK5lkiUtYyXvDLXShY0bNx4+fFgTyend3qaXWNRsKnOzrNjyt74LAFpvh9k9tPkzzaG9C05yO190WaQLR3fs2LFMvd0avqu7C1ahy5VNchtedpjTVP/ICl39FIu1Nj5qgpd53rImNz+tm4bStu01OFYjjuOg5XQ012SZ8r8z4iE3iFio3AAAAABJRU5ErkJggg==" alt="DIHAG" style="height:32px;width:auto;display:block;filter:brightness(0) invert(1);"/></div>
     <div class="hdr-tag">SharePoint</div>
     <div class="hdr-divider"></div>
     <div class="hdr-search">
@@ -463,9 +436,18 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
     <button class="vp-close" onclick="closeVersionPanel()">✕</button>
   </div>
   <div class="vp-acts">
-    <button class="vp-act primary" onclick="openUploadModal(true)">⬆ Neue Version</button>
-    <button class="vp-act" id="vp-dl-btn">⬇ Download</button>
-    <button class="vp-act del" onclick="deleteSelectedFile()">🗑</button>
+    <button class="vp-act primary" onclick="openUploadModal(true)" title="Neue Dateiversion hochladen">⬆ Neue Version</button>
+    <button class="vp-act" id="vp-dl-btn" title="Aktuelle Version herunterladen">⬇ Download</button>
+    <button class="vp-act del" onclick="deleteSelectedFile()" title="Datei und alle Versionen löschen">🗑 Löschen</button>
+  </div>
+  <!-- Version comment strip (shown after version upload) -->
+  <div id="vp-comment-strip" style="display:none;padding:8px 15px;border-bottom:1px solid var(--border);background:var(--bg);">
+    <div style="font-size:10px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Kommentar zur neuen Version</div>
+    <div style="display:flex;gap:6px;">
+      <input id="vp-comment-in" type="text" placeholder="Was wurde geändert?" style="flex:1;padding:6px 10px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:12px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
+      <button onclick="saveVersionComment()" style="background:var(--navy);border:none;color:#fff;padding:6px 13px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;">Speichern</button>
+      <button onclick="$id('vp-comment-strip').style.display='none'" style="background:var(--bg);border:1px solid var(--border);color:var(--text-dim);padding:6px 10px;border-radius:4px;font-size:11px;cursor:pointer;">✕</button>
+    </div>
   </div>
   <div class="vp-body">
     <div class="vp-sec-label">
@@ -492,6 +474,10 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
     </div>
     <input type="file" id="modal-file" onchange="setUploadFile(this.files[0])"/>
     <div class="selected-fn" id="selected-fn"></div>
+    <div id="modal-comment-wrap" style="display:none;margin-top:12px;">
+      <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:5px;">Versionskommentar (optional)</label>
+      <input type="text" id="modal-comment" placeholder="Was wurde geändert?" style="width:100%;padding:8px 12px;border:1.5px solid var(--border2);border-radius:var(--r-sm);font-family:inherit;font-size:12px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
+    </div>
     <div class="modal-acts">
       <button class="modal-cancel" onclick="closeUploadModal()">Abbrechen</button>
       <button class="modal-confirm" id="modal-confirm" onclick="doUpload()">Hochladen</button>
@@ -1134,8 +1120,9 @@ async function openVersionPanel(item){
   $id('vp-dl-btn').onclick=()=>{const u=item['@microsoft.graph.downloadUrl']||item.webUrl;if(u)window.open(u,'_blank');else toast('Download-URL fehlt','error');};
   $id('vp-versions').innerHTML='<div class="spinner sm"></div>';
   $id('vp-ver-cnt').textContent='';
+  const cs=$id('vp-comment-strip'); if(cs) cs.style.display='none';
   $id('version-panel').classList.add('open');
-  document.querySelectorAll('.node-card,.list-item').forEach(c=>c.classList.remove('selected'));
+  document.querySelectorAll('.tree-card,.list-item').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll(`[data-id="${item.id}"]`).forEach(c=>c.classList.add('selected'));
   try {
     const d=await gGet(`/drives/${drive.id}/items/${item.id}/versions`);
@@ -1143,16 +1130,25 @@ async function openVersionPanel(item){
     $id('vp-ver-cnt').textContent=vers.length+' Version'+(vers.length!==1?'en':'');
     $id('stat-ver').textContent=vers.length;
     const c=$id('vp-versions'); c.innerHTML='';
-    if(!vers.length){c.innerHTML='<p style="font-size:12px;color:var(--text-dim);">Keine Versionen vorhanden.</p>';return;}
+    if(!vers.length){c.innerHTML='<p style="font-size:12px;color:var(--text-dim);">Keine Versionen vorhanden.<br><small>Versionierung muss in SharePoint für diese Bibliothek aktiviert sein.</small></p>';return;}
     vers.forEach((v,idx)=>{
       const cur=idx===0;
       const el=document.createElement('div'); el.className='ver-item'+(cur?' current':'');
       const dt=v.lastModifiedDateTime?new Date(v.lastModifiedDateTime).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
-      el.innerHTML=`<div class="ver-head"><span class="ver-num">v${esc(v.id)}</span>${cur?'<span class="ver-cur-badge">✓ Aktuell</span>':''}</div>
-        <div class="ver-meta">📅 ${dt}<br>👤 ${esc(v.lastModifiedBy?.user?.displayName||'—')}<br>💾 ${v.size?fmtSize(v.size):'—'}</div>
+      el.innerHTML=`
+        <div class="ver-head">
+          <span class="ver-num">v${esc(v.id)}</span>
+          ${cur?'<span class="ver-cur-badge">✓ Aktuell</span>':''}
+        </div>
+        <div class="ver-meta">
+          📅 ${dt}<br>
+          👤 ${esc(v.lastModifiedBy?.user?.displayName||'—')}<br>
+          💾 ${v.size?fmtSize(v.size):'—'}
+        </div>
         <div class="ver-acts">
           ${v['@microsoft.graph.downloadUrl']?`<button class="ver-btn dl" onclick="window.open('${v['@microsoft.graph.downloadUrl']}','_blank')">⬇ Download</button>`:''}
           ${!cur?`<button class="ver-btn restore" onclick="restoreVersion('${esc(v.id)}')">↩ Wiederherstellen</button>`:''}
+          <button class="ver-btn" style="background:var(--bg);border-color:var(--border);color:var(--text-muted);" onclick="editVerComment('${esc(v.id)}')">✎ Notiz</button>
           ${!cur?`<button class="ver-btn del" onclick="deleteVersion('${esc(v.id)}')">🗑 Löschen</button>`:''}
         </div>`;
       c.appendChild(el);
@@ -1161,7 +1157,7 @@ async function openVersionPanel(item){
 }
 function closeVersionPanel(){
   $id('version-panel').classList.remove('open');
-  document.querySelectorAll('.node-card,.list-item').forEach(c=>c.classList.remove('selected'));
+  document.querySelectorAll('.tree-card,.list-item').forEach(c=>c.classList.remove('selected'));
   selected=null;
 }
 async function restoreVersion(verId){
@@ -1171,19 +1167,44 @@ async function restoreVersion(verId){
 }
 async function deleteVersion(verId){
   if(!selected||!drive)return;
-  if(!confirm(`Version ${verId} löschen?`))return;
-  try{await gDel(`/drives/${drive.id}/items/${selected.id}/versions/${verId}`);toast('Version gelöscht','success');await openVersionPanel(selected);}
+  if(!confirm(`Version ${verId} wirklich löschen?`))return;
+  try{await gDel(`/drives/${drive.id}/items/${selected.id}/versions/${verId}`);toast('Version gelöscht ✓','success');await openVersionPanel(selected);}
   catch(e){toast('Fehler: '+e.message,'error');}
 }
 async function deleteSelectedFile(){
   if(!selected||!drive)return;
-  if(!confirm(`„${selected.name}" und alle Versionen löschen?`))return;
+  if(!confirm(`„${selected.name}" und ALLE Versionen löschen?\nDies kann nicht rückgängig gemacht werden.`))return;
   try{
     await gDel(`/drives/${drive.id}/items/${selected.id}`);
     toast(`„${selected.name}" gelöscht`,'success');
     closeVersionPanel();
     const fid=pathStack[pathStack.length-1]?.id||'root'; delete cache[fid]; await loadFolder(fid);
   } catch(e){toast('Fehler: '+e.message,'error');}
+}
+function editVerComment(verId){
+  const strip=$id('vp-comment-strip');
+  const inp=$id('vp-comment-in');
+  if(!strip||!inp)return;
+  inp.dataset.verId=verId;
+  inp.value='';
+  strip.style.display='block';
+  setTimeout(()=>inp.focus(),50);
+}
+async function saveVersionComment(){
+  if(!selected||!drive)return;
+  const inp=$id('vp-comment-in');
+  const verId=inp.dataset.verId;
+  const comment=inp.value.trim();
+  $id('vp-comment-strip').style.display='none';
+  if(!comment||!verId)return;
+  try{
+    // Try checkin with comment (works if the item is checked out)
+    await gPost(`/drives/${drive.id}/items/${selected.id}/checkin`,{comment, checkInAs:'published'});
+    toast('Notiz gespeichert ✓','success');
+    await openVersionPanel(selected);
+  }catch(e){
+    toast(`Notiz: SharePoint erlaubt das nur beim Check-in. Bitte Kommentar beim nächsten Upload eingeben.`,'info');
+  }
 }
 
 // ══ UPLOAD ══════════════════════════════════════════════════════════
@@ -1195,6 +1216,10 @@ function openUploadModal(forVer){
   $id('modal-sub').textContent=forVer?`Neue Version für: ${selected?.name||'—'}`:'Datei in aktuellen Ordner hochladen';
   $id('selected-fn').style.display='none';
   $id('modal-confirm').classList.remove('ready');
+  const cw=$id('modal-comment-wrap');
+  if(cw) cw.style.display=forVer?'block':'none';
+  const ci=$id('modal-comment');
+  if(ci) ci.value='';
   $id('modal-ov').style.display='flex';
 }
 function closeUploadModal(){$id('modal-ov').style.display='none';}
@@ -1205,9 +1230,18 @@ async function doUpload(){
   closeUploadModal();
   const fid=pathStack[pathStack.length-1]?.id||'root';
   const fn=uploadForVer&&selected?selected.name:uploadFile.name;
-  const buildUrl=()=>fid==='root'
-    ?`/drives/${drive.id}/root:/${encodeURIComponent(fn)}:/content`
-    :`/drives/${drive.id}/items/${fid}:/${encodeURIComponent(fn)}:/content`;
+
+  // When uploading a NEW VERSION: use the item's ID directly → Graph automatically creates a version
+  // When uploading a NEW FILE:    use path-based URL in the current folder
+  const buildUrl=()=>{
+    if(uploadForVer && selected?.id){
+      // PUT to item ID → triggers versioning in SharePoint automatically
+      return `/drives/${drive.id}/items/${selected.id}/content`;
+    }
+    return fid==='root'
+      ?`/drives/${drive.id}/root:/${encodeURIComponent(fn)}:/content`
+      :`/drives/${drive.id}/items/${fid}:/${encodeURIComponent(fn)}:/content`;
+  };
 
   toast(`⬆ „${fn}" wird hochgeladen…`,'info');
   const buf=await uploadFile.arrayBuffer();
@@ -1221,7 +1255,6 @@ async function doUpload(){
     });
     if(r.ok) return r.json();
     const body=await r.text();
-    // Parse error code
     let code=''; try{const j=JSON.parse(body);code=j?.error?.code||j?.error?.innerError?.code||'';}catch{}
     throw Object.assign(new Error(`Graph PUT ${r.status}: ${body}`),{status:r.status,errCode:code,rawBody:body});
   };
@@ -1229,16 +1262,22 @@ async function doUpload(){
   try{
     await tryUpload();
     toast(`„${fn}" hochgeladen ✓`,'success');
+    // If a version comment was provided, do a checkin to attach it
+    const comment=($id('modal-comment')?.value||'').trim();
+    if(uploadForVer && comment && selected?.id){
+      try{
+        await gPost(`/drives/${drive.id}/items/${selected.id}/checkin`,{comment, checkInAs:'published'});
+      }catch{/* comment checkin is best-effort */}
+    }
     delete cache[fid]; await loadFolder(fid);
-    if(uploadForVer&&selected){try{const u=await gGet(`/drives/${drive.id}/items/${selected.id}`);await openVersionPanel(u);}catch{}}
+    if(uploadForVer&&selected){
+      try{const u=await gGet(`/drives/${drive.id}/items/${selected.id}`);await openVersionPanel(u);}catch{}
+    }
   } catch(e){
-    // 423 = file checked out
-    if(e.status===423 || (e.rawBody||'').includes('resourceCheckedOut')){
-      toast(`⚠ Datei ist ausgecheckt – versuche Checkout rückgängig zu machen…`,'info');
-      // Find the item ID to discard checkout
+    if(e.status===423||(e.rawBody||'').includes('resourceCheckedOut')){
+      toast(`⚠ Datei ausgecheckt – versuche Checkout rückgängig zu machen…`,'info');
       let itemId=selected?.id||null;
       if(!itemId){
-        // Try to find by name in current folder
         try{
           const sr=await gGet(`/drives/${drive.id}/${fid==='root'?'root':('items/'+fid)}/children?$filter=name eq '${encodeURIComponent(fn)}'&$top=5`);
           itemId=(sr.value||[]).find(i=>i.name===fn)?.id||null;
@@ -1246,15 +1285,8 @@ async function doUpload(){
       }
       if(itemId){
         let discarded=false;
-        try{
-          await gPost(`/drives/${drive.id}/items/${itemId}/discardCheckout`,{});
-          discarded=true;
-        }catch{
-          try{
-            await gPost(`/drives/${drive.id}/items/${itemId}/checkin`,{comment:'Auto-checkin by DMS before upload'});
-            discarded=true;
-          }catch{}
-        }
+        try{await gPost(`/drives/${drive.id}/items/${itemId}/discardCheckout`,{});discarded=true;}
+        catch{try{await gPost(`/drives/${drive.id}/items/${itemId}/checkin`,{comment:'Auto-checkin by DMS'});discarded=true;}catch{}}
         if(discarded){
           toast(`Checkout aufgehoben – lade erneut hoch…`,'info');
           try{
@@ -1266,7 +1298,7 @@ async function doUpload(){
           }catch(e2){toast(`Upload-Fehler nach Checkout-Reset: ${e2.message}`,'error');return;}
         }
       }
-      toast(`Datei ist von einem anderen Benutzer ausgecheckt. Bitte erst in SharePoint einchecken.`,'error');
+      toast(`Datei von anderem Benutzer ausgecheckt. Bitte erst in SharePoint einchecken.`,'error');
     } else {
       toast('Upload-Fehler: '+e.message,'error');
     }
