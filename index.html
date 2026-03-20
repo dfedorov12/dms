@@ -120,19 +120,25 @@ aside{width:var(--sidebar);flex-shrink:0;background:var(--surface);border-right:
 
 /* Drive items with version settings */
 .drives-wrap{padding:10px 13px;border-bottom:1px solid var(--border);}
-.drive-item{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:7px;overflow:hidden;transition:border-color .15s;}
-.drive-item.on{border-color:rgba(37,99,235,.4);}
-.drive-header{display:flex;align-items:center;gap:9px;padding:9px 11px;cursor:pointer;transition:background .15s;}
-.drive-header:hover{background:rgba(0,0,0,.025);}
+.drive-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:5px;overflow:hidden;transition:border-color .15s,box-shadow .15s;}
+.drive-item:hover{box-shadow:var(--shadow-sm);}
+.drive-item.on{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-bg);}
+.drive-header{display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer;transition:background .15s;}
+.drive-header:hover{background:var(--bg);}
 .drive-item.on .drive-header{background:var(--blue-bg);}
 .drive-item.on .drive-name{color:var(--blue);}
-.drive-ic{font-size:16px;flex-shrink:0;}
+/* Colorful SharePoint library icon */
+.drive-ic{
+  width:30px;height:30px;border-radius:6px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;
+  color:#fff;letter-spacing:-.3px;
+}
 .drive-title{flex:1;min-width:0;}
-.drive-name{font-size:12px;font-weight:600;color:var(--text);}
-.drive-sub{font-size:10px;color:var(--text-dim);margin-top:1px;}
+.drive-name{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.drive-sub{font-size:9px;color:var(--text-dim);margin-top:1px;}
 .drive-gear{background:none;border:none;font-size:12px;color:var(--text-dim);padding:4px;border-radius:4px;transition:all .15s;flex-shrink:0;line-height:1;}
-.drive-gear:hover{background:var(--surface);color:var(--text);}
-.drive-ver-bar{padding:9px 11px;background:var(--surface);border-top:1px solid var(--border);display:none;}
+.drive-gear:hover{background:var(--bg);color:var(--text);}
+.drive-ver-bar{padding:9px 11px;background:var(--bg);border-top:1px solid var(--border);display:none;}
 .drive-item.expanded .drive-ver-bar{display:block;}
 
 /* Version settings inside drive */
@@ -161,35 +167,65 @@ aside{width:var(--sidebar);flex-shrink:0;background:var(--surface);border-right:
 .sb-action-btn:disabled{opacity:.35;pointer-events:none;}
 
 /* Breadcrumb */
-.breadcrumb{display:flex;align-items:center;gap:5px;padding:9px 18px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;min-height:40px;}
-.bc-item{font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;white-space:nowrap;padding:3px 7px;border-radius:4px;transition:all .15s;}
-.bc-item:hover{color:var(--text);background:var(--bg);}
-.bc-item.active{color:var(--text);cursor:default;}
-.bc-item.active:hover{background:transparent;}
-.bc-sep{color:var(--text-dim);font-size:11px;}
+.breadcrumb{display:flex;align-items:center;gap:4px;padding:8px 18px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;min-height:42px;}
+.bc-item{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;white-space:nowrap;padding:4px 8px;border-radius:var(--r-sm);transition:all .15s;border:1px solid transparent;}
+.bc-item:hover{color:var(--text);background:var(--bg);border-color:var(--border);}
+.bc-item.active{color:var(--text);cursor:default;font-weight:700;}
+.bc-item.active:hover{background:transparent;border-color:transparent;}
+.bc-sep{color:var(--text-dim);font-size:14px;font-weight:300;line-height:1;}
 
 /* Main */
-main{flex:1;overflow:auto;padding:22px 24px;display:flex;flex-direction:column;}
+main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 
-/* Tree cards */
-.tree-wrap{display:flex;flex-direction:column;align-items:flex-start;min-width:max-content;padding-bottom:40px;}
-.tree-row{display:flex;flex-wrap:wrap;gap:14px;padding:4px 0;}
-.node-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:13px 14px;width:162px;min-height:104px;cursor:pointer;position:relative;transition:box-shadow .15s,border-color .15s,transform .15s,opacity .15s;box-shadow:var(--shadow-sm);user-select:none;}
-.node-card:hover{box-shadow:var(--shadow);border-color:var(--border2);transform:translateY(-1px);}
-.node-card.folder{border-top:3px solid var(--navy3);}
-.node-card.file{border-top:3px solid var(--red);}
-.node-card.selected{border-color:var(--red);box-shadow:0 0 0 2px var(--red-border),var(--shadow);}
-.node-card.drag-over{border-color:var(--blue);background:var(--blue-bg);}
-.node-card.dragging{opacity:.3;transform:scale(.96);}
-.node-ic{font-size:22px;margin-bottom:6px;display:block;line-height:1;}
-.node-name{font-size:11px;font-weight:700;color:var(--text);line-height:1.35;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.node-meta{font-size:10px;color:var(--text-dim);margin-top:4px;line-height:1.5;}
-.node-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;}
-.node-tag{font-size:9px;padding:2px 6px;border-radius:6px;font-weight:600;background:var(--bg);color:var(--text-muted);}
-.node-tag.folder-t{background:rgba(26,48,96,.07);color:var(--navy3);}
-.node-tag.ext{background:var(--red-bg);color:var(--red);}
+/* ── Inline tree view with +/− ── */
+.tree-pane{padding:18px 22px 40px;overflow:auto;flex:1;}
+.tree-node{position:relative;margin-bottom:2px;}
+/* vertical guide line through children */
+.tree-node.has-children.expanded::after{
+  content:'';position:absolute;left:9px;top:40px;bottom:10px;
+  width:1.5px;background:var(--border2);pointer-events:none;
+}
+.tree-row-wrap{display:flex;align-items:center;gap:5px;}
+.tree-toggle{
+  width:20px;height:20px;border-radius:4px;
+  border:1.5px solid var(--border2);background:var(--surface);
+  color:var(--text-muted);font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;cursor:pointer;transition:all .15s;
+  line-height:1;
+}
+.tree-toggle:hover{border-color:var(--navy);color:var(--navy);background:var(--bg);}
+.tree-toggle.no-tog{visibility:hidden;pointer-events:none;}
+.tree-card{
+  flex:1;background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r-sm);
+  cursor:pointer;transition:box-shadow .12s,border-color .12s;
+  user-select:none;display:flex;align-items:center;gap:10px;
+  padding:8px 12px;
+}
+.tree-card:hover{box-shadow:var(--shadow-sm);border-color:var(--border2);}
+.tree-card.folder-card{border-left:3px solid #f59e0b;}
+.tree-card.file-card{border-left:3px solid var(--red);}
+.tree-card.selected{border-color:var(--red)!important;box-shadow:0 0 0 2px var(--red-border);}
+.tree-card.drag-over{border-color:var(--blue)!important;background:var(--blue-bg);}
+.tree-card.dragging{opacity:.3;}
+.tc-icon{font-size:17px;flex-shrink:0;}
+.tc-body{flex:1;min-width:0;}
+.tc-name{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tc-meta{font-size:10px;color:var(--text-dim);margin-top:1px;}
+.tc-badges{display:flex;gap:4px;margin-top:2px;}
+.tc-badge{font-size:9px;padding:1px 6px;border-radius:5px;font-weight:600;}
+.tc-badge.folder-b{background:rgba(245,158,11,.12);color:#b45309;}
+.tc-badge.file-b{background:var(--red-bg);color:var(--red);}
+.tc-act-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:3px 9px;border-radius:4px;font-size:10px;font-weight:600;transition:all .15s;flex-shrink:0;margin-left:4px;}
+.tc-act-btn:hover{border-color:var(--red-border);color:var(--red);}
+/* indent children */
+.tree-children{padding-left:28px;display:none;border-left:0;}
+.tree-node.expanded>.tree-children{display:block;}
+.tree-loading-row{font-size:11px;color:var(--text-dim);padding:5px 4px;display:flex;align-items:center;gap:7px;}
 
-/* List view */
+/* ── List view ── */
+.list-pane{padding:18px 22px 40px;overflow:auto;flex:1;}
 .list-wrap{max-width:900px;width:100%;}
 .list-section{margin-bottom:20px;}
 .list-sec-hdr{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-dim);padding:5px 0;border-bottom:2px solid var(--border);margin-bottom:7px;}
@@ -204,7 +240,7 @@ main{flex:1;overflow:auto;padding:22px 24px;display:flex;flex-direction:column;}
 .list-sub{font-size:11px;color:var(--text-dim);margin-top:2px;}
 .list-badges{display:flex;gap:5px;margin-top:4px;}
 .list-badge{font-size:9px;padding:2px 8px;border-radius:6px;font-weight:600;}
-.list-badge.folder-b{background:rgba(26,48,96,.07);color:var(--navy3);}
+.list-badge.folder-b{background:rgba(245,158,11,.12);color:#b45309;}
 .list-badge.file-b{background:var(--red-bg);color:var(--red);}
 .list-act-btn{background:var(--bg);border:1px solid var(--border);color:var(--text-muted);padding:5px 10px;border-radius:4px;font-size:11px;font-weight:600;transition:all .15s;flex-shrink:0;}
 .list-act-btn:hover{background:var(--red-bg);border-color:var(--red-border);color:var(--red);}
@@ -403,11 +439,13 @@ main{flex:1;overflow:auto;padding:22px 24px;display:flex;flex-direction:column;}
     <!-- Center -->
     <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;">
       <div class="breadcrumb" id="breadcrumb"><span class="bc-item active">🏠 Start</span></div>
-      <main id="main">
-        <div class="empty">
-          <div class="empty-icon">📂</div>
-          <h3>Seite suchen &amp; Bibliothek wählen</h3>
-          <p>Gib links einen Seitennamen ein, merke Favoriten mit 📌 und wähle dann eine Dokumentenbibliothek.</p>
+      <main id="main" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+        <div class="tree-pane" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div class="empty">
+            <div class="empty-icon">📂</div>
+            <h3>Seite suchen &amp; Bibliothek wählen</h3>
+            <p>Gib links einen Seitennamen ein, merke Favoriten mit 📌 und wähle dann eine Dokumentenbibliothek.</p>
+          </div>
         </div>
       </main>
     </div>
@@ -688,15 +726,28 @@ async function loadDrives(siteId) {
 }
 function norm(s){ return (s||'').toLowerCase().replace(/[\s\-_]/g,''); }
 
+function driveColor(name) {
+  // Deterministic color from name — cycles through SP-like palette
+  const palette=[
+    '#107C10','#0078D4','#D83B01','#5C2D91','#008272',
+    '#CA5010','#038387','#8764B8','#00B294','#C239B3'
+  ];
+  let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))&0xFFFF;
+  return palette[h % palette.length];
+}
+function driveInitials(name){ return (name||'?').replace(/[^\w\s]/g,'').trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase()||'D'; }
+
 function mkDriveEl(dr, siteId, listId) {
   const el=document.createElement('div');
   el.className='drive-item';
-  // Store the raw driveId as a data attribute (safe for setAttribute, not for CSS selectors)
   el.dataset.driveId=dr.id;
+
+  const color=driveColor(dr.name);
+  const initials=driveInitials(dr.name);
 
   el.innerHTML=`
     <div class="drive-header">
-      <span class="drive-ic">📚</span>
+      <div class="drive-ic" style="background:${color};">${initials}</div>
       <div class="drive-title">
         <div class="drive-name">${esc(dr.name)}</div>
         <div class="drive-sub">${esc(dr.driveType||'documentLibrary')}</div>
@@ -705,16 +756,13 @@ function mkDriveEl(dr, siteId, listId) {
     </div>
     <div class="drive-ver-bar"><div class="spinner sm"></div></div>`;
 
-  // Use direct class-based querySelector — never embed the drive ID in a CSS selector
   const header = el.querySelector('.drive-header');
   const gear   = el.querySelector('.drive-gear');
   const verBar = el.querySelector('.drive-ver-bar');
 
-  // Store element refs in driveState so we never need to re-query by ID
   driveState[dr.id].el     = el;
   driveState[dr.id].verBar = verBar;
 
-  // Open library content on header click
   header.addEventListener('click', async (e) => {
     if (e.target.closest('.drive-gear')) return;
     document.querySelectorAll('.drive-item').forEach(x=>x.classList.remove('on'));
@@ -725,9 +773,7 @@ function mkDriveEl(dr, siteId, listId) {
     await loadFolder('root');
   });
 
-  // Toggle version settings panel
   gear.addEventListener('click', ()=>toggleVerPanel(dr.id));
-
   return el;
 }
 
@@ -889,12 +935,13 @@ async function loadFolder(folderId) {
 function updateBreadcrumb() {
   const bc=$id('breadcrumb'); bc.innerHTML='';
   pathStack.forEach((p,i)=>{
-    if(i>0) bc.innerHTML+='<span class="bc-sep">›</span>';
-    const s=document.createElement('span');
-    s.className='bc-item'+(i===pathStack.length-1?' active':'');
-    s.textContent=(i===0?'🏠 ':'📁 ')+p.name;
-    if(i<pathStack.length-1) s.onclick=()=>navBack(i);
-    bc.appendChild(s);
+    if(i>0){const s=document.createElement('span');s.className='bc-sep';s.textContent='›';bc.appendChild(s);}
+    const btn=document.createElement('button');
+    btn.className='bc-item'+(i===pathStack.length-1?' active':'');
+    btn.style.cssText='background:none;border:none;font-family:inherit;cursor:'+(i===pathStack.length-1?'default':'pointer');
+    btn.innerHTML=(i===0?'🏠 ':' 📁 ')+esc(p.name);
+    if(i<pathStack.length-1) btn.onclick=()=>navBack(i);
+    bc.appendChild(btn);
   });
 }
 async function navBack(idx) { pathStack=pathStack.slice(0,idx+1); await loadFolder(pathStack[idx].id); }
@@ -913,42 +960,129 @@ function setView(v) {
   renderView(cache[id]||[]);
 }
 
+// ── Inline tree with +/- expand ─────────────────────────────────────
 function renderTree(items) {
   const m=$id('main'); m.innerHTML='';
-  if(!items.length){m.innerHTML=emptyHtml();return;}
-  const wrap=document.createElement('div'); wrap.className='tree-wrap';
-  const row=document.createElement('div'); row.className='tree-row';
-  items.forEach(i=>row.appendChild(mkCard(i)));
-  wrap.appendChild(row); m.appendChild(wrap);
+  const pane=document.createElement('div'); pane.className='tree-pane';
+  if(!items.length){pane.innerHTML=emptyHtml();m.appendChild(pane);return;}
+  // Sort: folders first, then files, alpha
+  const sorted=[...items].sort((a,b)=>{
+    if(a.folder&&!b.folder)return-1; if(!a.folder&&b.folder)return 1;
+    return(a.name||'').localeCompare(b.name||'','de');
+  });
+  sorted.forEach(item=>pane.appendChild(mkTreeNode(item)));
+  m.appendChild(pane);
 }
-function mkCard(item) {
+
+function mkTreeNode(item, depth=0) {
   const isF=!!item.folder;
-  const c=document.createElement('div');
-  c.className='node-card '+(isF?'folder':'file'); c.dataset.id=item.id;
+  const hasCh=isF&&(item.folder?.childCount??0)>0;
+
+  const node=document.createElement('div');
+  node.className='tree-node'+(hasCh?' has-children':'');
+  node.dataset.id=item.id;
+
+  // Toggle button (+/−)
+  const tog=document.createElement('button');
+  tog.className='tree-toggle'+(isF?(hasCh?'':' no-tog'):' no-tog');
+  tog.textContent='+';
+  tog.title=hasCh?'Aufklappen':'';
+
+  // Card
+  const card=document.createElement('div');
+  card.className='tree-card '+(isF?'folder-card':'file-card');
+  card.dataset.id=item.id;
+
+  const by=item.lastModifiedBy?.user?.displayName||'';
+  card.innerHTML=`
+    <span class="tc-icon">${fileIcon(item)}</span>
+    <div class="tc-body">
+      <div class="tc-name">${esc(item.name)}</div>
+      <div class="tc-meta">${item.lastModifiedDateTime?fmt(item.lastModifiedDateTime):''}${by?' · '+esc(by):''}${item.size?' · '+fmtSize(item.size):''}</div>
+      <div class="tc-badges">${isF
+        ?`<span class="tc-badge folder-b">${item.folder?.childCount??'?'} Elemente</span>`
+        :`<span class="tc-badge file-b">${getExt(item.name)}</span>`}
+      </div>
+    </div>
+    ${!isF?`<button class="tc-act-btn">📋</button>`:''}`;
+
   if(!isF){
-    c.draggable=true;
-    c.ondragstart=e=>{dragId=item.id;c.classList.add('dragging');e.dataTransfer.effectAllowed='move';};
-    c.ondragend=()=>{c.classList.remove('dragging');dragId=null;};
+    card.querySelector('.tc-act-btn').addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
+    // Drag
+    card.draggable=true;
+    card.ondragstart=e=>{dragId=item.id;card.classList.add('dragging');e.dataTransfer.effectAllowed='move';};
+    card.ondragend=()=>{card.classList.remove('dragging');dragId=null;};
   } else {
-    c.ondragover=e=>{e.preventDefault();c.classList.add('drag-over');};
-    c.ondragleave=()=>c.classList.remove('drag-over');
-    c.ondrop=e=>{e.preventDefault();c.classList.remove('drag-over');if(dragId&&dragId!==item.id)moveItem(dragId,item.id,item.name);};
+    card.ondragover=e=>{e.preventDefault();card.classList.add('drag-over');};
+    card.ondragleave=()=>card.classList.remove('drag-over');
+    card.ondrop=e=>{e.preventDefault();card.classList.remove('drag-over');if(dragId&&dragId!==item.id)moveItem(dragId,item.id,item.name);};
   }
-  c.innerHTML=`<span class="node-ic">${fileIcon(item)}</span>
-    <div class="node-name">${esc(item.name)}</div>
-    <div class="node-meta">${item.lastModifiedDateTime?fmt(item.lastModifiedDateTime):''}${item.size?' · '+fmtSize(item.size):''}</div>
-    <div class="node-tags">${isF?`<span class="node-tag folder-t">${item.folder.childCount??'?'} Elemente</span>`:`<span class="node-tag ext">${getExt(item.name)}</span>`}</div>`;
-  c.onclick=()=>isF?enterFolder(item):openVersionPanel(item);
-  return c;
+
+  // Children container
+  const children=document.createElement('div');
+  children.className='tree-children';
+
+  // Click card: file → version panel; folder → navigate (update pathStack + breadcrumb)
+  card.addEventListener('click', async()=>{
+    if(isF){
+      // Navigate into folder (also updates breadcrumb)
+      pathStack.push({id:item.id,name:item.name});
+      updateBreadcrumb();
+      // Lazy-load children if not in cache
+      if(!cache[item.id]){
+        $id('main').innerHTML='<div class="spinner" style="margin-top:40px;"></div>';
+        await loadFolder(item.id);
+      } else {
+        renderView(cache[item.id]);
+      }
+    } else {
+      openVersionPanel(item);
+    }
+  });
+
+  // Toggle expand/collapse (only for folders with children)
+  tog.addEventListener('click', async(e)=>{
+    e.stopPropagation();
+    if(node.classList.contains('expanded')){
+      node.classList.remove('expanded');
+      tog.textContent='+';
+    } else {
+      node.classList.add('expanded');
+      tog.textContent='−';
+      if(!children.dataset.loaded){
+        children.dataset.loaded='1';
+        children.innerHTML=`<div class="tree-loading-row"><div class="spinner sm" style="margin:0;"></div> Lade…</div>`;
+        try{
+          const url=`/drives/${drive.id}/items/${item.id}/children?$top=100&$orderby=name`;
+          const d=await gGet(url);
+          const sub=(d.value||[]).sort((a,b)=>{
+            if(a.folder&&!b.folder)return-1; if(!a.folder&&b.folder)return 1;
+            return(a.name||'').localeCompare(b.name||'','de');
+          });
+          children.innerHTML='';
+          if(!sub.length){children.innerHTML='<div class="tree-loading-row" style="color:var(--text-dim)">— Leer</div>';return;}
+          sub.forEach(ch=>children.appendChild(mkTreeNode(ch,depth+1)));
+        }catch(err){children.innerHTML=`<div class="tree-loading-row" style="color:var(--red);">Fehler: ${esc(err.message)}</div>`;}
+      }
+    }
+  });
+
+  const row=document.createElement('div'); row.className='tree-row-wrap';
+  row.appendChild(tog); row.appendChild(card);
+  node.appendChild(row);
+  node.appendChild(children);
+  return node;
 }
+
 function renderList(items) {
   const m=$id('main'); m.innerHTML='';
-  if(!items.length){m.innerHTML=emptyHtml();return;}
+  const pane=document.createElement('div'); pane.className='list-pane';
+  if(!items.length){pane.innerHTML=emptyHtml();m.appendChild(pane);return;}
   const w=document.createElement('div'); w.className='list-wrap';
   const folds=items.filter(i=>i.folder), files=items.filter(i=>i.file);
   if(folds.length) w.appendChild(mkListSec(`Ordner (${folds.length})`,folds));
   if(files.length) w.appendChild(mkListSec(`Dateien (${files.length})`,files));
-  m.appendChild(w);
+  pane.appendChild(w); m.appendChild(pane);
 }
 function mkListSec(title,items){
   const s=document.createElement('div'); s.className='list-section';
@@ -1071,14 +1205,72 @@ async function doUpload(){
   closeUploadModal();
   const fid=pathStack[pathStack.length-1]?.id||'root';
   const fn=uploadForVer&&selected?selected.name:uploadFile.name;
-  const url=fid==='root'?`/drives/${drive.id}/root:/${encodeURIComponent(fn)}:/content`:`/drives/${drive.id}/items/${fid}:/${encodeURIComponent(fn)}:/content`;
+  const buildUrl=()=>fid==='root'
+    ?`/drives/${drive.id}/root:/${encodeURIComponent(fn)}:/content`
+    :`/drives/${drive.id}/items/${fid}:/${encodeURIComponent(fn)}:/content`;
+
   toast(`⬆ „${fn}" wird hochgeladen…`,'info');
+  const buf=await uploadFile.arrayBuffer();
+
+  const tryUpload=async()=>{
+    const tok=await getToken();
+    const r=await fetch('https://graph.microsoft.com/v1.0'+buildUrl(),{
+      method:'PUT',
+      headers:{Authorization:'Bearer '+tok,'Content-Type':uploadFile.type||'application/octet-stream'},
+      body:buf
+    });
+    if(r.ok) return r.json();
+    const body=await r.text();
+    // Parse error code
+    let code=''; try{const j=JSON.parse(body);code=j?.error?.code||j?.error?.innerError?.code||'';}catch{}
+    throw Object.assign(new Error(`Graph PUT ${r.status}: ${body}`),{status:r.status,errCode:code,rawBody:body});
+  };
+
   try{
-    await gPut(url,await uploadFile.arrayBuffer(),uploadFile.type||'application/octet-stream');
+    await tryUpload();
     toast(`„${fn}" hochgeladen ✓`,'success');
     delete cache[fid]; await loadFolder(fid);
     if(uploadForVer&&selected){try{const u=await gGet(`/drives/${drive.id}/items/${selected.id}`);await openVersionPanel(u);}catch{}}
-  } catch(e){toast('Upload-Fehler: '+e.message,'error');}
+  } catch(e){
+    // 423 = file checked out
+    if(e.status===423 || (e.rawBody||'').includes('resourceCheckedOut')){
+      toast(`⚠ Datei ist ausgecheckt – versuche Checkout rückgängig zu machen…`,'info');
+      // Find the item ID to discard checkout
+      let itemId=selected?.id||null;
+      if(!itemId){
+        // Try to find by name in current folder
+        try{
+          const sr=await gGet(`/drives/${drive.id}/${fid==='root'?'root':('items/'+fid)}/children?$filter=name eq '${encodeURIComponent(fn)}'&$top=5`);
+          itemId=(sr.value||[]).find(i=>i.name===fn)?.id||null;
+        }catch{}
+      }
+      if(itemId){
+        let discarded=false;
+        try{
+          await gPost(`/drives/${drive.id}/items/${itemId}/discardCheckout`,{});
+          discarded=true;
+        }catch{
+          try{
+            await gPost(`/drives/${drive.id}/items/${itemId}/checkin`,{comment:'Auto-checkin by DMS before upload'});
+            discarded=true;
+          }catch{}
+        }
+        if(discarded){
+          toast(`Checkout aufgehoben – lade erneut hoch…`,'info');
+          try{
+            await tryUpload();
+            toast(`„${fn}" hochgeladen ✓`,'success');
+            delete cache[fid]; await loadFolder(fid);
+            if(uploadForVer&&selected){try{const u=await gGet(`/drives/${drive.id}/items/${selected.id}`);await openVersionPanel(u);}catch{}}
+            return;
+          }catch(e2){toast(`Upload-Fehler nach Checkout-Reset: ${e2.message}`,'error');return;}
+        }
+      }
+      toast(`Datei ist von einem anderen Benutzer ausgecheckt. Bitte erst in SharePoint einchecken.`,'error');
+    } else {
+      toast('Upload-Fehler: '+e.message,'error');
+    }
+  }
 }
 
 // ══ FOLDER CREATE ════════════════════════════════════════════════════
