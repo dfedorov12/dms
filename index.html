@@ -43,15 +43,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 button{font-family:var(--font);cursor:pointer;}
 
 /* BOOT */
-#boot{position:fixed;inset:0;background:var(--navy);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px;z-index:9999;}
-.boot-brand{display:flex;align-items:center;gap:14px;}
-.boot-bars{display:flex;align-items:flex-end;gap:3px;}
-.boot-bar{background:var(--red);border-radius:2px;width:4px;}
-.boot-bar:nth-child(1){height:16px;}.boot-bar:nth-child(2){height:10px;}.boot-bar:nth-child(3){height:22px;}.boot-bar:nth-child(4){height:12px;}
-.boot-name{color:#fff;font-size:24px;font-weight:800;letter-spacing:-0.5px;}
-.boot-name em{color:var(--red);font-style:normal;}
-.boot-subtitle{color:rgba(255,255,255,0.35);font-size:12px;letter-spacing:.15em;text-transform:uppercase;}
-.boot-spinner{width:38px;height:38px;border:3px solid rgba(255,255,255,0.12);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite;}
+#boot{position:fixed;inset:0;background:var(--navy);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;z-index:9999;}
+.boot-logo-card{background:#fff;border-radius:16px;padding:22px 36px;box-shadow:0 8px 40px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;}
+.boot-subtitle{color:rgba(255,255,255,0.38);font-size:11px;letter-spacing:.18em;text-transform:uppercase;margin-top:-4px;}
+.boot-spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,0.12);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 #boot-txt{color:rgba(255,255,255,0.45);font-size:13px;}
 #boot-err{max-width:420px;background:rgba(192,57,43,.18);border:1px solid rgba(192,57,43,.35);border-radius:var(--r);padding:16px 20px;font-size:13px;color:#fca5a5;line-height:1.7;text-align:center;display:none;}
@@ -64,12 +59,7 @@ button{font-family:var(--font);cursor:pointer;}
 
 /* Header */
 header{height:58px;background:var(--navy);display:flex;align-items:center;padding:0 18px;gap:14px;position:sticky;top:0;z-index:200;box-shadow:0 2px 10px rgba(0,0,0,0.25);flex-shrink:0;}
-.hdr-brand{display:flex;align-items:center;gap:9px;flex-shrink:0;}
-.hdr-bars{display:flex;align-items:flex-end;gap:2.5px;}
-.hdr-bar{background:var(--red);border-radius:1.5px;width:3px;}
-.hdr-bar:nth-child(1){height:12px;}.hdr-bar:nth-child(2){height:8px;}.hdr-bar:nth-child(3){height:17px;}.hdr-bar:nth-child(4){height:9px;}
-.hdr-brand-text{font-size:14px;font-weight:800;color:#fff;letter-spacing:-.2px;}
-.hdr-brand-text em{color:var(--red);font-style:normal;}
+.hdr-brand{display:flex;align-items:center;flex-shrink:0;}
 .hdr-tag{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4);background:rgba(255,255,255,.07);padding:3px 8px;border-radius:4px;white-space:nowrap;}
 .hdr-divider{width:1px;height:22px;background:rgba(255,255,255,.1);flex-shrink:0;}
 .hdr-search{flex:1;max-width:380px;position:relative;}
@@ -299,11 +289,25 @@ main{flex:1;overflow:auto;padding:22px 24px;display:flex;flex-direction:column;}
 
 <!-- BOOT -->
 <div id="boot">
-  <div class="boot-brand">
-    <div class="boot-bars"><div class="boot-bar"></div><div class="boot-bar"></div><div class="boot-bar"></div><div class="boot-bar"></div></div>
-    <div class="boot-name">DI<em>HAG</em> DMS</div>
+  <!-- White logo card, exactly like the orgchart app -->
+  <div class="boot-logo-card">
+    <svg width="180" height="52" viewBox="0 0 180 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Pin icon -->
+      <g transform="translate(0,2)">
+        <!-- outer pin shape -->
+        <ellipse cx="22" cy="18" rx="13" ry="13" fill="none" stroke="#0a1f3c" stroke-width="2.5"/>
+        <!-- inner circle -->
+        <circle cx="22" cy="18" r="5.5" fill="#0a1f3c"/>
+        <!-- pin tail -->
+        <path d="M22 31 L16 44 L22 39 L28 44 Z" fill="#0a1f3c"/>
+      </g>
+      <!-- DIHAG text -->
+      <text x="45" y="26" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="22" fill="#0a1f3c" letter-spacing="-0.5">DIHAG</text>
+      <!-- subtitle -->
+      <text x="45" y="40" font-family="Inter,system-ui,sans-serif" font-weight="400" font-size="7.5" fill="#8fa0b5" letter-spacing="0.12em">INTEGRATED FOUNDRY GROUP</text>
+    </svg>
   </div>
-  <div class="boot-subtitle">Document Management · SharePoint</div>
+  <div class="boot-subtitle">DMS · Document Management · SharePoint</div>
   <div class="boot-spinner" id="boot-spinner"></div>
   <div id="boot-txt">Initialisiere Authentifizierung…</div>
   <div id="boot-err"></div>
@@ -314,8 +318,15 @@ main{flex:1;overflow:auto;padding:22px 24px;display:flex;flex-direction:column;}
 <div id="app">
   <header>
     <div class="hdr-brand">
-      <div class="hdr-bars"><div class="hdr-bar"></div><div class="hdr-bar"></div><div class="hdr-bar"></div><div class="hdr-bar"></div></div>
-      <div class="hdr-brand-text">DI<em>HAG</em> DMS</div>
+      <svg width="90" height="26" viewBox="0 0 90 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <g transform="translate(0,1)">
+          <ellipse cx="11" cy="9" rx="6.5" ry="6.5" fill="none" stroke="white" stroke-width="1.8"/>
+          <circle cx="11" cy="9" r="2.8" fill="white"/>
+          <path d="M11 15.5 L8 22 L11 19.5 L14 22 Z" fill="white"/>
+        </g>
+        <text x="22" y="17" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="13" fill="white" letter-spacing="-0.3">DIHAG</text>
+        <text x="22" y="24" font-family="Inter,system-ui,sans-serif" font-weight="400" font-size="5.5" fill="rgba(255,255,255,0.45)" letter-spacing="0.08em">FOUNDRY GROUP</text>
+      </svg>
     </div>
     <div class="hdr-tag">SharePoint</div>
     <div class="hdr-divider"></div>
@@ -679,20 +690,32 @@ function norm(s){ return (s||'').toLowerCase().replace(/[\s\-_]/g,''); }
 
 function mkDriveEl(dr, siteId, listId) {
   const el=document.createElement('div');
-  el.className='drive-item'; el.id='drive-'+dr.id;
+  el.className='drive-item';
+  // Store the raw driveId as a data attribute (safe for setAttribute, not for CSS selectors)
+  el.dataset.driveId=dr.id;
+
   el.innerHTML=`
-    <div class="drive-header" id="dh-${dr.id}">
+    <div class="drive-header">
       <span class="drive-ic">📚</span>
       <div class="drive-title">
         <div class="drive-name">${esc(dr.name)}</div>
         <div class="drive-sub">${esc(dr.driveType||'documentLibrary')}</div>
       </div>
-      <button class="drive-gear" id="dgear-${dr.id}" title="Versionierungseinstellungen">⚙</button>
+      <button class="drive-gear" title="Versionierungseinstellungen">⚙</button>
     </div>
-    <div class="drive-ver-bar" id="dvb-${dr.id}"><div class="spinner sm"></div></div>`;
+    <div class="drive-ver-bar"><div class="spinner sm"></div></div>`;
 
-  // Open library content
-  el.querySelector('#dh-'+dr.id).addEventListener('click', async (e) => {
+  // Use direct class-based querySelector — never embed the drive ID in a CSS selector
+  const header = el.querySelector('.drive-header');
+  const gear   = el.querySelector('.drive-gear');
+  const verBar = el.querySelector('.drive-ver-bar');
+
+  // Store element refs in driveState so we never need to re-query by ID
+  driveState[dr.id].el     = el;
+  driveState[dr.id].verBar = verBar;
+
+  // Open library content on header click
+  header.addEventListener('click', async (e) => {
     if (e.target.closest('.drive-gear')) return;
     document.querySelectorAll('.drive-item').forEach(x=>x.classList.remove('on'));
     el.classList.add('on');
@@ -703,20 +726,19 @@ function mkDriveEl(dr, siteId, listId) {
   });
 
   // Toggle version settings panel
-  el.querySelector('#dgear-'+dr.id).addEventListener('click', ()=>toggleVerPanel(dr.id));
+  gear.addEventListener('click', ()=>toggleVerPanel(dr.id));
 
   return el;
 }
 
 async function toggleVerPanel(drId) {
   const state=driveState[drId];
-  const card=$id('drive-'+drId);
+  const card  = state.el;      // stored ref — no ID lookup needed
+  const bar   = state.verBar;  // stored ref
   state.expanded=!state.expanded;
   card.classList.toggle('expanded', state.expanded);
   if (!state.expanded) return;
   if (state.settings) { renderVerPanel(drId); return; }
-  // Load settings via Graph beta list
-  const bar=$id('dvb-'+drId);
   bar.innerHTML='<div class="spinner sm"></div>';
   try {
     if (!state.listId) throw new Error('Kein Listeneintrag gefunden');
@@ -724,13 +746,11 @@ async function toggleVerPanel(drId) {
     const r=await fetch(`https://graph.microsoft.com/beta/sites/${state.siteId}/lists/${state.listId}?$select=id,displayName,list`,
       {headers:{Authorization:'Bearer '+tok}});
     const data=r.ok?await r.json():null;
-    // Graph beta list.enableVersioning exists in beta
     state.settings={
-      enableVersioning: data?.list?.contentTypesEnabled ?? true, // proxy — actual field needs SP REST
+      enableVersioning: data?.list?.contentTypesEnabled ?? true,
       majorLimit: null,
       minorLimit: null
     };
-    // Try SP REST for actual versioning numbers
     if (currentSite?.webUrl) {
       try {
         const rt=await getToken();
@@ -740,10 +760,10 @@ async function toggleVerPanel(drId) {
         );
         if (sr.ok) {
           const sd=await sr.json();
-          const obj=sd?.d || sd;
-          state.settings.enableVersioning = obj.EnableVersioning ?? true;
-          state.settings.majorLimit       = obj.MajorVersionLimit ?? null;
-          state.settings.minorLimit       = obj.MajorWithMinorVersionsLimit ?? null;
+          const obj=sd?.d||sd;
+          state.settings.enableVersioning = obj.EnableVersioning??true;
+          state.settings.majorLimit       = obj.MajorVersionLimit??null;
+          state.settings.minorLimit       = obj.MajorWithMinorVersionsLimit??null;
         }
       } catch {}
     }
@@ -759,16 +779,18 @@ async function toggleVerPanel(drId) {
 }
 
 function renderVerPanel(drId) {
-  const bar=$id('dvb-'+drId);
   const state=driveState[drId];
-  const s=state.settings||{};
-  const spUrl=currentSite?.webUrl
+  const bar  = state.verBar;   // stored DOM ref — no ID lookup
+  const s    = state.settings||{};
+  // Use a safe slug for input element IDs (base64url-like, just alphanumeric)
+  const slug = drId.replace(/[^a-zA-Z0-9]/g,'_');
+  const spUrl= currentSite?.webUrl
     ? `${currentSite.webUrl}/_layouts/15/listedit.aspx?List=${state.listId||''}`
     : '#';
 
   const majorHtml = state.editField==='major'
     ? `<div class="vs-input-row">
-         <input type="number" class="vs-input" id="vs-input-${drId}" value="${s.majorLimit||500}" min="1" max="50000"/>
+         <input type="number" class="vs-input" id="vsi-major-${slug}" value="${s.majorLimit||500}" min="1" max="50000"/>
          <button class="vs-save" onclick="saveVerSetting('${drId}','major')">✓ Speichern</button>
          <button class="vs-cancel" onclick="cancelVerEdit('${drId}')">✕</button>
        </div>`
@@ -777,7 +799,7 @@ function renderVerPanel(drId) {
 
   const minorHtml = state.editField==='minor'
     ? `<div class="vs-input-row">
-         <input type="number" class="vs-input" id="vs-input-${drId}" value="${s.minorLimit||0}" min="0" max="50000"/>
+         <input type="number" class="vs-input" id="vsi-minor-${slug}" value="${s.minorLimit||0}" min="0" max="50000"/>
          <button class="vs-save" onclick="saveVerSetting('${drId}','minor')">✓ Speichern</button>
          <button class="vs-cancel" onclick="cancelVerEdit('${drId}')">✕</button>
        </div>`
@@ -805,7 +827,9 @@ function cancelVerEdit(drId) { driveState[drId].editField=null; renderVerPanel(d
 
 async function saveVerSetting(drId, field) {
   const state=driveState[drId];
-  const val=parseInt($id('vs-input-'+drId)?.value||'0');
+  const slug=drId.replace(/[^a-zA-Z0-9]/g,'_');
+  const inputEl = $id(`vsi-${field}-${slug}`);
+  const val=parseInt(inputEl?.value||'0');
   if (isNaN(val)||val<0) { toast('Ungültiger Wert','error'); return; }
   if (!currentSite?.webUrl||!state.listId) {
     toast('Site-URL fehlt – bitte direkt in SharePoint ändern','error'); return;
