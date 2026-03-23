@@ -2134,39 +2134,38 @@ async function doVpUpload() {
         try { const fr=await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`); parentWebUrl=fr.webUrl||''; } catch {}
       }
 
-      // Step 2: Upload file
-      const safeTitle  = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
-      const safeVer    = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
-      const attachName = `${safeVer}_${file.name}`;
-      const buf        = await file.arrayBuffer();
-      let fileWebUrl   = '';
-      try {
-        const up = await gPut(
-          `/sites/${vpSiteId}/drive/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`,
-          buf, file.type||'application/octet-stream'
-        );
-        fileWebUrl = up.webUrl||'';
-        log('Upload OK:', fileWebUrl.substring(0,60));
-      } catch(e) {
-        log('Upload IT-Site failed, trying current drive:', e.message);
-        if (drive) {
-          try {
-            const fid=pathStack[pathStack.length-1]?.id||'root';
-            const url=fid==='root'
-              ? `/drives/${drive.id}/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`
-              : `/drives/${drive.id}/items/${fid}:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`;
-            const up2=await gPut(url,buf,file.type||'application/octet-stream');
-            fileWebUrl=up2.webUrl||'';
-            log('Fallback upload OK:', fileWebUrl.substring(0,60));
-          } catch(e2){ log('Fallback FAIL:', e2.message); }
-        }
-      }
+       // Step 2: Create list item FIRST (we need item ID for SP attachment)
+       const attachName = `${ver.replace(/[^a-zA-Z0-9._-]/g,'_')}_${file.name}`;
+       const buf        = await file.arrayBuffer();
+       let fileWebUrl   = '';
 
       // Step 3: Create list item
       const newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,
         {fields:{Title:selected.name}});
       const itemId = newItem.id;
       log('List item id:', itemId);
+
+
+       // Step 3b: Upload file as SP list attachment (uses SP REST with SP token)
+       try {
+         const spTok = await getSpToken();
+         const attachUrl = `${vpSiteWebUrl}/_api/web/lists(guid'${vpListId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(attachName)}')`;
+         const r = await fetch(attachUrl, {
+           method: 'POST',
+           headers: { 'Authorization':'Bearer '+spTok, 'Content-Type':'application/octet-stream',
+                      'Accept':'application/json;odata=verbose' },
+           body: buf
+         });
+         if (r.ok || r.status===200) {
+           // Attachment URL: {siteUrl}/Lists/Versionsprotokoll/Attachments/{id}/{filename}
+           const listUrlName = encodeURIComponent(vpListName);
+           fileWebUrl = `${vpSiteWebUrl}/Lists/${listUrlName}/Attachments/${itemId}/${encodeURIComponent(attachName)}`;
+           log('Attachment OK:', fileWebUrl.substring(0,70));
+         } else {
+           const t = await r.text().catch(()=>''); 
+           log('Attachment FAIL:', r.status, t.substring(0,80));
+         }
+       } catch(ae) { log('Attachment exception:', ae.message); }
 
       // Step 4: PATCH fields
       const patch = async (col,val,lbl) => {
@@ -2274,13 +2273,30 @@ function vpDownload(url, name) {
   if (!url) { toast('Keine Download-URL','info'); return; }
   const filename = name || 'download';
   toast('⬇ Download läuft…','info');
-  // Fetch the file as a blob with the Bearer token, then trigger save dialog
-  getToken().then(tok => {
+
+  // Debug overlay
+  const dbg = document.createElement('div');
+  dbg.style.cssText='position:fixed;bottom:80px;right:20px;width:400px;background:#0a1f3c;color:#7dd3fc;font-size:10px;font-family:monospace;padding:10px;border-radius:8px;z-index:9999;white-space:pre-wrap;';
+  dbg.textContent = `Download: ${url.substring(0,80)}\nFile: ${filename}`;
+  const cb=document.createElement('button'); cb.textContent='✕';
+  cb.style.cssText='float:right;background:none;border:none;color:#7dd3fc;cursor:pointer;';
+  cb.onclick=()=>dbg.remove(); dbg.prepend(cb);
+  document.body.appendChild(dbg);
+  setTimeout(()=>dbg?.remove(), 15000);
+
+  // Choose token: SP attachment URLs need SP token, Graph URLs need Graph token
+  const isSpAttachment = url.includes('/Lists/') && url.includes('/Attachments/');
+  const getAppropriateToken = isSpAttachment ? getSpToken : getToken;
+
+  getAppropriateToken().then(tok => {
+    dbg.textContent = dbg.textContent + `\nToken type: ${isSpAttachment ? 'SP' : 'Graph'}\nFetching...`;
     return fetch(url, { headers: { Authorization: 'Bearer ' + tok } });
   }).then(r => {
-    if (!r.ok) throw new Error(r.status);
+    dbg.textContent = dbg.textContent + `\nHTTP ${r.status}`;
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.blob();
   }).then(blob => {
+    dbg.textContent = dbg.textContent + `\nBlob ${blob.size} bytes — saving...`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
@@ -2288,10 +2304,11 @@ function vpDownload(url, name) {
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+    toast('✓ Download gestartet', 'success');
   }).catch(e => {
-    console.warn('Blob download failed:', e.message);
-    // Last resort: open with download hint
-    window.open(url.includes('?') ? url + '&download=1' : url + '?download=1', '_blank');
+    dbg.textContent = dbg.textContent + `\nFEHLER: ${e.message}`;
+    console.warn('Download failed:', e.message, url);
+    window.open(url, '_blank');
   });
 }
 
