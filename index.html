@@ -846,7 +846,7 @@ const driveState   = {};
 
 // Version-log list state (resolved at startup)
 let vpSiteId      = null;
-let vpSiteWebUrl  = '';   // e.g. https://dihag.sharepoint.com/sites/IT
+let vpSiteWebUrl  = 'https://dihag.sharepoint.com/sites/IT'; // hardcoded fallback
 let vpListId      = null;
 let vpListName    = '';   // display name for attachment URL path
 let vpColumns     = {};   // internal name → display name
@@ -1182,45 +1182,48 @@ const VP_COLS = {}; // { VersionNr: 'Versionsnummer', DateiLink: 'Datei_x002d_Li
 function resolveVpCols() {
   Object.keys(VP_COLS).forEach(k => delete VP_COLS[k]);
 
-  // For each writable column, check display name for keywords
-  for (const [internalName, displayName] of Object.entries(vpColumns)) {
-    const dn = (displayName||'').toLowerCase().trim();
-    const n  = internalName.toLowerCase();
+  // KNOWN column display names from the Versionsprotokoll list (from screenshot)
+  const KNOWN = {
+    VersionNr: 'Versionsnummer',
+    Kommentar: 'Kommentar',
+    Status_:   'Status',
+    Datum:     'Datum',
+    DateiLink: 'Datei-Link',   // SP internal = Datei_x002d_Link
+  };
 
-    // Versionsnummer / Version
-    if (!VP_COLS.VersionNr && (dn.includes('version') || n.includes('version'))) {
-      VP_COLS.VersionNr = internalName;
-    }
-    // Kommentar
-    if (!VP_COLS.Kommentar && (dn.includes('kommentar') || dn.includes('comment') || dn.includes('beschreibung'))) {
-      VP_COLS.Kommentar = internalName;
-    }
-    // Status
-    if (!VP_COLS.Status_ && dn === 'status') {
-      VP_COLS.Status_ = internalName;
-    }
-    // Datum / Date
-    if (!VP_COLS.Datum && (dn === 'datum' || dn === 'date' || dn === 'zeitpunkt')) {
-      VP_COLS.Datum = internalName;
-    }
-    // Benutzer / Autor (Person field shown as "Benutzer" in screenshot)
-    if (!VP_COLS.Autor && (dn === 'benutzer' || dn === 'autor' || dn === 'author')) {
-      VP_COLS.Autor = internalName;
-    }
-    // Datei-Link — SP stores "Datei-Link" as "Datei_x002d_Link" internally
-    if (!VP_COLS.DateiLink && (
-      dn === 'datei-link' || dn === 'dateilink' || dn.includes('datei') && dn.includes('link') ||
-      n === 'datei_x002d_link' || n === 'dateilink'
-    )) {
-      VP_COLS.DateiLink = internalName;
-    }
-    // Dateiname
-    if (!VP_COLS.DateiName && (dn === 'dateiname' || dn === 'datei name' || dn.includes('datei') && dn.includes('name'))) {
-      VP_COLS.DateiName = internalName;
+  for (const [logical, displayName] of Object.entries(KNOWN)) {
+    // Try via display name lookup
+    const byDisplay = vpColByDisplay[displayName.toLowerCase()];
+    if (byDisplay) { VP_COLS[logical] = byDisplay; continue; }
+    // Try direct internal name
+    if (vpColumns[displayName]) { VP_COLS[logical] = displayName; continue; }
+    // For Datei-Link: SP always encodes hyphen as _x002d_
+    if (logical === 'DateiLink') {
+      if (vpColumns['Datei_x002d_Link']) { VP_COLS[logical] = 'Datei_x002d_Link'; continue; }
+      // Scan all columns for any that looks like a link column
+      for (const [k,v] of Object.entries(vpColumns)) {
+        const vl = (v||'').toLowerCase();
+        if (vl === 'datei-link' || vl === 'dateilink' || k === 'Datei_x002d_Link') {
+          VP_COLS[logical] = k; break;
+        }
+      }
     }
   }
 
-  console.log('[VP] Resolved VP_COLS:', JSON.stringify(VP_COLS));
+  // Fallback: if still empty, scan all columns by keyword
+  for (const [k, v] of Object.entries(vpColumns)) {
+    const dn = (v||'').toLowerCase();
+    const n  = k.toLowerCase();
+    if (!VP_COLS.VersionNr && (dn.includes('version') || n.includes('version'))) VP_COLS.VersionNr = k;
+    if (!VP_COLS.Kommentar && (dn.includes('kommentar') || dn.includes('comment')))    VP_COLS.Kommentar = k;
+    if (!VP_COLS.Status_   && dn === 'status')                                          VP_COLS.Status_ = k;
+    if (!VP_COLS.Datum     && (dn === 'datum' || dn === 'date'))                        VP_COLS.Datum = k;
+    if (!VP_COLS.DateiLink && (dn.includes('datei') && (dn.includes('link') || n.includes('x002d')))) VP_COLS.DateiLink = k;
+  }
+
+  console.log('[VP] All columns from list:');
+  Object.entries(vpColumns).forEach(([k,v]) => console.log(`  "${k}" = "${v}"`));
+  console.log('[VP] VP_COLS resolved:', JSON.stringify(VP_COLS));
 }
 
 // Simple lookup: returns the actual SP internal column name for a logical key
@@ -2114,52 +2117,36 @@ async function doVpUpload() {
     console.log('[VP] item created, id:', itemId);
 
     // ── Step 4: PATCH each field individually ──────────────────────
-    // Log what we're about to write
-    console.log('[VP] Will PATCH itemId:', itemId);
-    console.log('[VP] VP_COLS at upload time:', JSON.stringify(VP_COLS));
-    console.log('[VP] fileWebUrl:', fileWebUrl);
+    console.log('[VP] Patching item', itemId, '| VP_COLS:', JSON.stringify(VP_COLS), '| fileWebUrl:', fileWebUrl);
 
-    const patches = [];
-    if (VP_COLS.VersionNr)  patches.push([VP_COLS.VersionNr,  ver, 'string']);
-    if (VP_COLS.Kommentar && komm) patches.push([VP_COLS.Kommentar, komm, 'string']);
-    if (VP_COLS.Status_ && status) patches.push([VP_COLS.Status_,   status, 'string']);
-    if (VP_COLS.DateiName)  patches.push([VP_COLS.DateiName,  attachName, 'string']);
-    if (VP_COLS.Datum)      patches.push([VP_COLS.Datum, new Date().toISOString(), 'string']);
-
-    // Datei-Link: try both the resolved col AND 'Datei_x002d_Link' as fallback
-    const dateiLinkCols = [...new Set([
-      VP_COLS.DateiLink,
-      'Datei_x002d_Link',
-      vpColumns['Datei_x002d_Link'] ? 'Datei_x002d_Link' : null,
-    ].filter(Boolean))];
-
-    if (fileWebUrl) {
-      for (const col of dateiLinkCols) {
-        patches.push([col, fileWebUrl, 'hyperlink']);
-      }
-    }
-
-    for (const [col, val, type] of patches) {
+    const patchField = async (col, val) => {
+      if (!col || val === undefined || val === null || val === '') return false;
       try {
-        const payload = type === 'hyperlink'
-          ? {[col]: {Url: val, Description: attachName}}
-          : {[col]: val};
-        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, payload);
-        console.log('[VP] ✓ patched', col, '=', typeof val === 'string' ? val.substring(0,50) : val);
-        // If it was hyperlink and worked, remove the duplicate
-        if (type === 'hyperlink') break;
-      } catch(pe) {
-        console.warn('[VP] ✗ failed', col, pe.message);
-        // For hyperlink cols: also try plain string
-        if (type === 'hyperlink') {
-          try {
-            await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, {[col]: val});
-            console.log('[VP] ✓ patched', col, 'as plain string');
-            break;
-          } catch(pe2) {
-            console.warn('[VP] ✗ plain string also failed', col, pe2.message);
-          }
-        }
+        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, {[col]: val});
+        console.log('[VP] ✓', col, '=', String(val).substring(0,60));
+        return true;
+      } catch(e) { console.warn('[VP] ✗', col, e.message); return false; }
+    };
+
+    // Write each field using VP_COLS with hardcoded fallback
+    await patchField(VP_COLS.VersionNr || 'Versionsnummer', ver);
+    if (komm)   await patchField(VP_COLS.Kommentar || 'Kommentar', komm);
+    if (status) await patchField(VP_COLS.Status_   || 'Status',    status);
+    await patchField(VP_COLS.Datum     || 'Datum',   new Date().toISOString());
+    if (VP_COLS.DateiName) await patchField(VP_COLS.DateiName, attachName);
+
+    // Datei-Link — try resolved col AND hardcoded Datei_x002d_Link
+    if (fileWebUrl) {
+      const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
+      let linked = await patchField(linkCol, fileWebUrl);
+      if (!linked && linkCol !== 'Datei_x002d_Link')
+        linked = await patchField('Datei_x002d_Link', fileWebUrl);
+      if (!linked) {
+        try {
+          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,
+            {[linkCol]: {Url: fileWebUrl, Description: attachName}});
+          console.log('[VP] ✓', linkCol, 'as hyperlink');
+        } catch(e) { console.warn('[VP] ✗ hyperlink:', e.message); }
       }
     }
 
