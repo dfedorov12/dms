@@ -2144,18 +2144,29 @@ async function doVpUpload() {
       }
     };
 
-    await patch(VP_COLS.VersionNr || 'Versionsnummer', ver, 'VersionNr');
+    await patch(VP_COLS.VersionNr || 'Versionsnummer',
+      // SP Versionsnummer is a NUMBER column — strip "v" and parse as float
+      parseFloat((ver||'0').replace(/[^0-9.]/g,'')) || 0,
+      'VersionNr');
     if (komm)   await patch(VP_COLS.Kommentar || 'Kommentar', komm, 'Kommentar');
     if (status) await patch(VP_COLS.Status_   || 'Status', status, 'Status');
     await patch(VP_COLS.Datum || 'Datum', new Date().toISOString(), 'Datum');
     if (VP_COLS.DateiName) await patch(VP_COLS.DateiName, attachName, 'DateiName');
 
+    // Datei-Link is a HYPERLINK column — Graph requires separate Url and Desc fields:
+    // e.g. "Datei_x002d_LinkUrl" and "Datei_x002d_LinkDesc"
     if (fileWebUrl) {
       const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
-      let ok = await patch(linkCol, fileWebUrl, 'DateiLink(string)');
-      if (!ok) ok = await patch(linkCol, {Url:fileWebUrl, Description:attachName}, 'DateiLink(object)');
-      if (!ok && linkCol !== 'Datei_x002d_Link')
-        await patch('Datei_x002d_Link', fileWebUrl, 'DateiLink(fallback)');
+      // Method 1: Graph hyperlink split fields (correct way for list hyperlink columns)
+      const ok1 = await patch(
+        linkCol + 'Url',
+        fileWebUrl,
+        'DateiLink(Url field)'
+      );
+      await patch(linkCol + 'Desc', attachName, 'DateiLink(Desc field)');
+
+      // Method 2: Plain string (some SP configs accept this)
+      if (!ok1) await patch(linkCol, fileWebUrl, 'DateiLink(plain)');
     }
 
     log('=== DONE ===');
@@ -2679,35 +2690,32 @@ function renderMainVpTree(item, entries) {
     entries.forEach((it, idx) => {
       const f    = it.fields||{};
 
-      // Use VP_COLS (resolved at startup) for direct column access
-      const ver  = (VP_COLS.VersionNr  && f[VP_COLS.VersionNr])  || f.VersionNr  || f.Versionsnummer || f.Version || 'v?';
+      // Versionsnummer is a NUMBER in SP → format as "v1.0"
+      const rawVer = (VP_COLS.VersionNr && f[VP_COLS.VersionNr]) || f.Versionsnummer || f.Version || '';
+      const ver  = rawVer !== '' ? 'v' + Number(rawVer).toFixed(1).replace(/\.0$/,'') : 'v?';
+
       const komm = (VP_COLS.Kommentar  && f[VP_COLS.Kommentar])  || f.Kommentar  || '';
       const stat = (VP_COLS.Status_    && f[VP_COLS.Status_])    || f.Status_    || f.Status || '';
-      const autor= (VP_COLS.Autor      && f[VP_COLS.Autor])      || f.Autor      || f.Benutzer || '';
+      const autor= (VP_COLS.Autor      && f[VP_COLS.Autor])      || f.Benutzer   || f.Autor  || '';
       const dt   = (VP_COLS.Datum      && f[VP_COLS.Datum])      || f.Datum      || it.createdDateTime || '';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
       const dlNm = (VP_COLS.DateiName  && f[VP_COLS.DateiName])  || f.DateiName  || f.Dateiname || '';
 
-      // Datei-Link = URL of the version file (set via VP_COLS.DateiLink)
-      let dlUrl  = '';
-      // 1. Use the resolved Datei-Link column directly
-      if (VP_COLS.DateiLink && f[VP_COLS.DateiLink]) {
-        const v = f[VP_COLS.DateiLink];
-        dlUrl = typeof v==='object' ? (v.Url||v.url||'') : String(v||'');
+      // Datei-Link hyperlink field: Graph returns it split as {linkCol}Url and {linkCol}Desc
+      const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
+      let dlUrl = f[linkCol + 'Url'] || f[linkCol + 'url'] || '';
+      // Fallback: check the field as a plain value or object
+      if (!dlUrl) {
+        const raw = f[linkCol];
+        if (typeof raw === 'string' && raw.startsWith('http')) dlUrl = raw;
+        else if (raw?.Url) dlUrl = raw.Url;
       }
-      // 2. Fallback: scan all fields for any https URL containing sharepoint.com
+      // Last fallback: scan all fields for any https SharePoint URL
       if (!dlUrl) {
         for (const [k,v] of Object.entries(f)) {
-          if (typeof v==='string' && v.startsWith('https://') &&
-              v.includes('sharepoint.com') && !k.startsWith('_')) { dlUrl=v; break; }
-          if (typeof v==='object' && v?.Url?.startsWith('https://')) { dlUrl=v.Url; break; }
+          if (typeof v==='string' && v.startsWith('https://') && v.includes('sharepoint.com')
+              && !k.startsWith('_') && k !== 'Title') { dlUrl=v; break; }
         }
-      }
-      // 3. SP AttachmentFiles via REST fetch
-      if (!dlUrl && it.AttachmentFiles?.length) {
-        const att = it.AttachmentFiles[0];
-        dlUrl = att.AbsoluteUri || (att.ServerRelativeUrl
-          ? (vpSiteWebUrl.replace(/\/sites\/[^/]+.*/i,'')+att.ServerRelativeUrl) : '');
       }
 
       // No fading – all entries fully visible (only current gets green)
