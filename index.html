@@ -1095,6 +1095,45 @@ async function getToken() {
   }
 }
 
+// SharePoint REST token (different audience/scope than Graph)
+async function getSpToken() {
+  const spBase = vpSiteWebUrl || 'https://dihag.sharepoint.com';
+  const origin = new URL(spBase).origin;
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes:[`${origin}/Sites.ReadWrite.All`], account });
+    return r.accessToken;
+  } catch {
+    const r = await msalApp.acquireTokenPopup({ scopes:[`${origin}/Sites.ReadWrite.All`], account });
+    return r.accessToken;
+  }
+}
+
+// Update a Hyperlink column via SP REST (Graph API cannot update Hyperlink columns)
+async function patchSpHyperlink(numericItemId, columnName, url, desc) {
+  try {
+    const tok  = await getSpToken();
+    const body = JSON.stringify({
+      '__metadata': {'type':'SP.Data.VersionsprotokollListItem'},
+      [columnName]: {'__metadata':{'type':'SP.FieldUrlValue'}, 'Url': url, 'Description': desc||url}
+    });
+    const r = await fetch(
+      `${vpSiteWebUrl}/_api/web/lists(guid'${vpListId}')/items(${numericItemId})`,
+      { method:'POST',
+        headers:{ 'Authorization':'Bearer '+tok,
+                  'Content-Type':'application/json;odata=verbose',
+                  'Accept':'application/json;odata=verbose',
+                  'IF-MATCH':'*', 'X-HTTP-Method':'MERGE' },
+        body }
+    );
+    if (r.status === 204 || r.ok) return true;
+    const t = await r.text().catch(()=>'');
+    throw new Error(`SP REST ${r.status}: ${t.substring(0,120)}`);
+  } catch(e) {
+    console.warn('[VP] SP REST hyperlink failed:', e.message);
+    return false;
+  }
+}
+
 // ══ GRAPH HELPERS ══════════════════════════════════════════════════════
 async function gGet(url, extraHeaders={}) {
   const r=await fetch('https://graph.microsoft.com/v1.0'+url,{headers:{Authorization:'Bearer '+await getToken(),...extraHeaders}});
@@ -2157,16 +2196,10 @@ async function doVpUpload() {
     // e.g. "Datei_x002d_LinkUrl" and "Datei_x002d_LinkDesc"
     if (fileWebUrl) {
       const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
-      // Method 1: Graph hyperlink split fields (correct way for list hyperlink columns)
-      const ok1 = await patch(
-        linkCol + 'Url',
-        fileWebUrl,
-        'DateiLink(Url field)'
-      );
-      await patch(linkCol + 'Desc', attachName, 'DateiLink(Desc field)');
-
-      // Method 2: Plain string (some SP configs accept this)
-      if (!ok1) await patch(linkCol, fileWebUrl, 'DateiLink(plain)');
+      log('Datei-Link via SP REST:', linkCol, fileWebUrl.substring(0,60));
+      const dlOk = await patchSpHyperlink(itemId, linkCol, fileWebUrl, attachName);
+      if (dlOk) log('PATCH OK: DateiLink (SP REST) ✓');
+      else       log('PATCH FAIL: DateiLink (SP REST) - see console');
     }
 
     log('=== DONE ===');
