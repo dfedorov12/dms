@@ -229,7 +229,8 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .tc-badge.file-b{background:var(--red-bg);color:var(--red);}
 .tc-act-btn{flex-shrink:0;background:var(--bg);border:1.5px solid var(--border2);color:var(--navy);padding:3px 8px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:.04em;transition:all .15s;cursor:pointer;white-space:nowrap;}
 .tc-act-btn:hover{background:var(--navy);color:#fff;border-color:var(--navy);}
-.tc-del-btn{margin-left:4px;flex-shrink:0;background:none;border:none;color:rgba(192,57,43,.35);padding:5px 6px;border-radius:5px;font-size:12px;transition:all .15s;cursor:pointer;}
+.tc-btns{display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:auto;}
+.tc-del-btn{background:none;border:none;color:rgba(192,57,43,.35);padding:5px 6px;border-radius:5px;font-size:12px;transition:all .15s;cursor:pointer;}
 .tc-del-btn:hover{color:var(--red);background:var(--red-bg);}
 /* indent children */
 .tree-children{padding-left:28px;display:none;border-left:0;}
@@ -1171,29 +1172,35 @@ async function initVpList() {
 const VP_COLS = {}; // { VersionNr: 'Versionsnummer', DateiLink: 'Datei_x002d_Link', ... }
 
 function resolveVpCols() {
-  // Display names from the SP list (as seen in screenshots)
-  // Map our logical names to the SP display names, then resolve to internal names
-  const displayMap = {
-    VersionNr:  ['Versionsnummer','Version','VersionNr','VersionNumber'],
-    Kommentar:  ['Kommentar','Comment','Beschreibung'],
-    Status_:    ['Status','Zustand'],
-    Datum:      ['Datum','Date','Zeitpunkt'],
-    Autor:      ['Benutzer','Autor','Author','Geändert von'],  // "Benutzer" from screenshot
-    DateiLink:  ['Datei-Link','Dateilink','DateiLink','Link','URL','FileLink'],
-    DateiName:  ['Dateiname','DateiName','FileName'],
-    DateiUrl:   ['DateiUrl','Datei URL','FileUrl'],
-    FileItemId: ['FileItemId','ItemId','DriveItemId'],
+  // Clear previous
+  Object.keys(VP_COLS).forEach(k => delete VP_COLS[k]);
+
+  // Map logical → list of possible display names OR internal names to try
+  const tryNames = {
+    VersionNr: ['Versionsnummer','Version','VersionNr','VersionNumber'],
+    Kommentar: ['Kommentar','Comment','Beschreibung'],
+    Status_:   ['Status','Zustand'],
+    Datum:     ['Datum','Date','Zeitpunkt'],
+    Autor:     ['Benutzer','Autor','Author'],
+    DateiLink: ['Datei-Link','Dateilink','DateiLink','Datei_x002d_Link','Link','URL'],
+    DateiName: ['Dateiname','DateiName','FileName'],
+    FileItemId:['FileItemId','ItemId','DriveItemId'],
   };
-  for (const [logical, displayNames] of Object.entries(displayMap)) {
-    for (const dn of displayNames) {
-      const internalName = vpColByDisplay[dn.toLowerCase()];
-      if (internalName && vpColumns[internalName]) {
-        VP_COLS[logical] = internalName;
-        break;
-      }
+
+  for (const [logical, names] of Object.entries(tryNames)) {
+    for (const n of names) {
+      // Try as internal name directly
+      if (vpColumns[n]) { VP_COLS[logical] = n; break; }
+      // Try as display name
+      const internal = vpColByDisplay[n.toLowerCase()];
+      if (internal && vpColumns[internal]) { VP_COLS[logical] = internal; break; }
     }
   }
-  console.log('[VP] Resolved columns:', JSON.stringify(VP_COLS));
+
+  // Log all available columns so we can debug
+  console.log('[VP] Available columns (internal=display):',
+    Object.entries(vpColumns).map(([k,v])=>`${k}="${v}"`).join(', '));
+  console.log('[VP] Resolved VP_COLS:', JSON.stringify(VP_COLS));
 }
 
 // Simple lookup: returns the actual SP internal column name for a logical key
@@ -1645,10 +1652,12 @@ function mkTreeNode(item, depth=0) {
         :`<span class="tc-badge file-b">${getExt(item.name)}</span>`}
       </div>
     </div>
-    ${isF?`<button class="tc-act-btn tc-pin-btn" style="font-size:12px;padding:3px 7px;">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
-    ${!isF?`<button class="tc-act-btn" style="font-size:11px;padding:3px 8px;" title="Herunterladen">⬇</button>`:''}
-    ${!isF?`<button class="tc-act-btn" title="Versionen">Vers.</button>`:''}
-    <button class="tc-del-btn" title="${isF?'Ordner':'Datei'} löschen">🗑</button>`;
+    <div class="tc-btns">
+      ${isF?`<button class="tc-act-btn tc-pin-btn" style="font-size:12px;padding:3px 7px;">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
+      ${!isF?`<button class="tc-act-btn" style="font-size:11px;padding:3px 8px;" title="Herunterladen">⬇</button>`:''}
+      ${!isF?`<button class="tc-act-btn" title="Versionen">Vers.</button>`:''}
+      <button class="tc-del-btn" title="Löschen">🗑</button>
+    </div>`;
   if(isF) {
     const pinBtn=card.querySelector('.tc-pin-btn');
     if(pinBtn) pinBtn.addEventListener('click', e=>{
@@ -1665,19 +1674,7 @@ function mkTreeNode(item, depth=0) {
       if(btn.title==='Herunterladen') {
         btn.addEventListener('click', async e=>{
           e.stopPropagation();
-          // Get fresh download URL from Graph (webUrl doesn't force download)
-          try {
-            const fresh = await gGet(`/drives/${drive.id}/items/${item.id}?$select=id,@microsoft.graph.downloadUrl,name`);
-            const dlUrl = fresh['@microsoft.graph.downloadUrl'];
-            if (dlUrl) {
-              vpDownload(dlUrl, item.name);
-            } else {
-              // Fallback to webUrl with download param
-              vpDownload(item.webUrl, item.name);
-            }
-          } catch {
-            vpDownload(item.webUrl, item.name);
-          }
+          vpDownloadFresh(drive.id, item.id, item.name);
         });
       } else if(btn.title==='Versionen') {
         btn.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
@@ -2199,34 +2196,29 @@ async function vpAttachFile(itemId) {
 
 function vpDownload(url, name) {
   if (!url) { toast('Keine Download-URL','info'); return; }
-  // For SharePoint URLs: fetch via Graph download URL or use hidden anchor
-  // First try: get a direct download URL from Graph if it's a webUrl
-  const filename = name || 'download';
-  // Use fetch→blob approach which works cross-origin with Bearer token
-  getToken().then(token => {
-    toast('⬇ Download läuft…','info');
-    fetch(url, { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => {
-        if (!r.ok) throw new Error(r.status);
-        return r.blob();
-      })
-      .then(blob => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 1000);
-      })
-      .catch(e => {
-        // Fallback: open in new tab with download hint
-        console.warn('Blob download failed:', e.message, '- falling back to window.open');
-        window.open(url.includes('?') ? url+'&download=1' : url+'?download=1', '_blank');
-      });
-  }).catch(() => {
-    window.open(url.includes('?') ? url+'&download=1' : url+'?download=1', '_blank');
-  });
+  // SP webUrls open in browser — we need the Graph downloadUrl which forces a save dialog
+  // If the url is already a direct download (contains downloadUrl params), use it directly
+  // Otherwise fetch fresh downloadUrl from Graph by searching for the file
+  const a = document.createElement('a');
+  a.style.display = 'none';
+  a.download = name || 'download';
+  a.href = url;
+  // Add target=_blank as fallback but set download attribute
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => document.body.removeChild(a), 500);
+}
+
+async function vpDownloadFresh(driveId, itemId, name) {
+  // Fetch a fresh @microsoft.graph.downloadUrl (short-lived but forces download)
+  try {
+    const d = await gGet(`/drives/${driveId}/items/${itemId}?$select=@microsoft.graph.downloadUrl`);
+    const dlUrl = d['@microsoft.graph.downloadUrl'];
+    if (dlUrl) vpDownload(dlUrl, name);
+    else throw new Error('no downloadUrl');
+  } catch {
+    toast('Download nicht verfügbar','error');
+  }
 }
 
 // Form-based file drop (for add form drop zone)
