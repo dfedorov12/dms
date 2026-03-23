@@ -2272,31 +2272,31 @@ async function vpAttachFile(itemId) {
 function vpDownload(url, name) {
   if (!url) { toast('Keine Download-URL','info'); return; }
   const filename = name || 'download';
-  toast('⬇ Download läuft…','info');
 
-  // Debug overlay
-  const dbg = document.createElement('div');
-  dbg.style.cssText='position:fixed;bottom:80px;right:20px;width:400px;background:#0a1f3c;color:#7dd3fc;font-size:10px;font-family:monospace;padding:10px;border-radius:8px;z-index:9999;white-space:pre-wrap;';
-  dbg.textContent = `Download: ${url.substring(0,80)}\nFile: ${filename}`;
-  const cb=document.createElement('button'); cb.textContent='✕';
-  cb.style.cssText='float:right;background:none;border:none;color:#7dd3fc;cursor:pointer;';
-  cb.onclick=()=>dbg.remove(); dbg.prepend(cb);
-  document.body.appendChild(dbg);
-  setTimeout(()=>dbg?.remove(), 15000);
-
-  // Choose token: SP attachment URLs need SP token, Graph URLs need Graph token
+  // SP attachment URLs: user is authenticated via browser session cookies.
+  // Direct navigation triggers download dialog — no CORS issue.
   const isSpAttachment = url.includes('/Lists/') && url.includes('/Attachments/');
-  const getAppropriateToken = isSpAttachment ? getSpToken : getToken;
 
-  getAppropriateToken().then(tok => {
-    dbg.textContent = dbg.textContent + `\nToken type: ${isSpAttachment ? 'SP' : 'Graph'}\nFetching...`;
-    return fetch(url, { headers: { Authorization: 'Bearer ' + tok } });
-  }).then(r => {
-    dbg.textContent = dbg.textContent + `\nHTTP ${r.status}`;
+  if (isSpAttachment) {
+    // Navigate directly — SP serves it as download since user is authenticated
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => document.body.removeChild(a), 500);
+    return;
+  }
+
+  // For Graph/Drive URLs: fetch blob with Bearer token (same origin via Graph API)
+  toast('⬇ Download läuft…','info');
+  getToken().then(tok =>
+    fetch(url, { headers: { Authorization: 'Bearer ' + tok } })
+  ).then(r => {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.blob();
   }).then(blob => {
-    dbg.textContent = dbg.textContent + `\nBlob ${blob.size} bytes — saving...`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
@@ -2304,11 +2304,14 @@ function vpDownload(url, name) {
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
-    toast('✓ Download gestartet', 'success');
+    toast('✓ Download gestartet','success');
   }).catch(e => {
-    dbg.textContent = dbg.textContent + `\nFEHLER: ${e.message}`;
-    console.warn('Download failed:', e.message, url);
-    window.open(url, '_blank');
+    console.warn('Download failed:', e.message);
+    // Fallback: direct navigation
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.style.display='none';
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>document.body.removeChild(a),500);
   });
 }
 
@@ -2750,23 +2753,22 @@ function renderMainVpTree(item, entries) {
       const autor= (VP_COLS.Autor      && f[VP_COLS.Autor])      || f.Benutzer   || f.Autor  || '';
       const dt   = (VP_COLS.Datum      && f[VP_COLS.Datum])      || f.Datum      || it.createdDateTime || '';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
-      // Dateiname: check both dedicated column AND hyperlink description field
-      const linkColDesc = (VP_COLS.DateiLink||'Datei_x002d_Link') + 'Desc';
-      const dlNm = (VP_COLS.DateiName  && f[VP_COLS.DateiName])
+      // Dateiname: SP returns hyperlink description in Datei_x002d_LinkDesc
+      // And our patchSpHyperlink sets Description = attachName
+      const linkBase = VP_COLS.DateiLink || 'Datei_x002d_Link';
+      const linkColDesc = linkBase + 'Desc';
+      const dlNm = f[linkColDesc]          // SP hyperlink description field
+                || (VP_COLS.DateiName && f[VP_COLS.DateiName])
                 || f.DateiName || f.Dateiname
-                || f[linkColDesc]  // SP hyperlink description = filename
                 || '';
 
-      // Datei-Link hyperlink field: Graph returns it split as {linkCol}Url and {linkCol}Desc
-      const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
-      let dlUrl = f[linkCol + 'Url'] || f[linkCol + 'url'] || '';
-      // Fallback: check the field as a plain value or object
+      // Datei-Link URL: SP returns split as {col}Url and {col}Desc
+      let dlUrl = f[linkBase + 'Url'] || f[linkBase + 'url'] || '';
       if (!dlUrl) {
-        const raw = f[linkCol];
+        const raw = f[linkBase];
         if (typeof raw === 'string' && raw.startsWith('http')) dlUrl = raw;
         else if (raw?.Url) dlUrl = raw.Url;
       }
-      // Last fallback: scan all fields for any https SharePoint URL
       if (!dlUrl) {
         for (const [k,v] of Object.entries(f)) {
           if (typeof v==='string' && v.startsWith('https://') && v.includes('sharepoint.com')
