@@ -1821,7 +1821,6 @@ function closeVersionPanel() {
 
 // ══ CUSTOM VP LIST (Versionsprotokoll) ════════════════════════════════
 async function loadVpEntries(item) {
-  // Update inline tree to loading state
   if (selected?.id === item.id) renderMainVpTree(item, null);
 
   if (!vpSiteId || !vpListId) {
@@ -1830,55 +1829,70 @@ async function loadVpEntries(item) {
     return;
   }
   try {
+    // Fetch list items (no AttachmentFiles expand - not supported in Graph)
     const prefer = {'Prefer':'HonorNonIndexedQueriesWarningMayFailRandomly'};
-    const d = await gGet(
-      `/sites/${vpSiteId}/lists/${vpListId}/items?$expand=fields,AttachmentFiles&$top=5000&$orderby=createdDateTime desc`,
-      prefer
-    );
-    const all = d.value||[];
-    const fileItemId  = item.id||'';
-    const fileWebUrl  = (item.webUrl||'').toLowerCase().replace(/\?.*$/,'');
-    const fileName    = (item.name||'').toLowerCase();
+    let all = [];
+    try {
+      const d = await gGet(
+        `/sites/${vpSiteId}/lists/${vpListId}/items?$expand=fields&$top=5000&$orderby=createdDateTime desc`,
+        prefer
+      );
+      all = d.value||[];
+    } catch(fetchErr) {
+      // If list is empty or other error, just show empty state
+      console.warn('[VP] list fetch error:', fetchErr.message);
+      if (selected?.id === item.id) renderMainVpTree(item, []);
+      return;
+    }
+
+    const fileItemId    = item.id||'';
+    const fileWebUrl    = (item.webUrl||'').toLowerCase().replace(/\?.*$/,'');
+    const fileName      = (item.name||'').toLowerCase();
     const fileItemIdCol = vpField('FileItemId');
 
-    if(all.length) console.log('[VP] fields in first item:', Object.keys(all[0].fields||{}));
-    console.log('[VP] matching: id='+fileItemId+' webUrl='+fileWebUrl+' name='+fileName);
+    if(all.length) console.log('[VP] sample fields:', Object.keys(all[0].fields||{}));
 
     const filtered = all.filter(it=>{
-      const f=it.fields||{};
-
-      // 1. Match by stored FileItemId (most reliable)
+      const f = it.fields||{};
       if(fileItemIdCol && f[fileItemIdCol]===fileItemId) return true;
-      if(f.FileItemId===fileItemId || f.fileItemId===fileItemId) return true;
-
-      // 2. Match by Title (filename)
+      if(f.FileItemId===fileItemId) return true;
       if((f.Title||'').toLowerCase()===fileName) return true;
-
-      // 3. Match by any URL field containing the filename or matching the webUrl
       for(const [k,v] of Object.entries(f)){
         if(!v) continue;
         const urlStr = typeof v==='object'?(v?.Url||v?.url||'').toLowerCase():(typeof v==='string'?v.toLowerCase():'');
         if(!urlStr.startsWith('http')) continue;
-        const urlClean = urlStr.replace(/\?.*$/,'');
-        if(urlClean===fileWebUrl) return true;
-        const decoded = (() => { try{return decodeURIComponent(urlClean);}catch{return urlClean;} })();
-        if(decoded.includes(fileName)) return true;
+        const clean = urlStr.replace(/\?.*$/,'');
+        if(clean===fileWebUrl) return true;
+        try{ if(decodeURIComponent(clean).includes(fileName)) return true; }catch{}
       }
       return false;
     });
 
-    // Render inline tree in main view
-    if (selected?.id === item.id) {
-      if (!filtered.length) {
-        renderMainVpTree(item, []);
-      } else {
-        renderMainVpTree(item, filtered);
-      }
+    // For each filtered item fetch its SP attachments via REST (single batch)
+    if (filtered.length > 0 && vpSiteWebUrl) {
+      await Promise.all(filtered.map(async it => {
+        try {
+          const token = await getToken();
+          const r = await fetch(
+            `${vpSiteWebUrl}/_api/web/lists(guid'${vpListId}')/items(${it.id})/AttachmentFiles`,
+            { headers:{ Authorization:'Bearer '+token, Accept:'application/json;odata=verbose' }}
+          );
+          if(r.ok){
+            const j = await r.json();
+            const files = j?.d?.results || j?.value || [];
+            if(files.length) {
+              it.AttachmentFiles = files; // attach to item for URL extraction
+            }
+          }
+        } catch(e){ /* attachment fetch optional */ }
+      }));
     }
+
+    if (selected?.id === item.id) renderMainVpTree(item, filtered);
 
   } catch(e) {
     if (selected?.id === item.id) renderMainVpTree(item, []);
-    toast('VP-Ladefehler: '+e.message, 'error');
+    console.error('[VP] loadVpEntries error:', e.message);
   }
 }
 
@@ -2118,98 +2132,6 @@ function vpmSetFile(f) {
   $id('vpm-confirm').style.pointerEvents='all';
 }
 
-async function doVpUpload() {
-  if(!vpmFile||!drive||!selected) {
-    $id('vpm-err').textContent='Datei fehlt oder keine Datei ausgewählt.';
-    $id('vpm-err').style.display='block'; return;
-  }
-  if(!vpSiteId||!vpListId) {
-    $id('vpm-err').textContent='Liste nicht verbunden – bitte kurz warten.';
-    $id('vpm-err').style.display='block';
-    initVpList().then(()=>{ if(vpListId) $id('vpm-err').textContent='Bereit – nochmals klicken.'; });
-    return;
-  }
-  const ver    =($id('vpm-ver').value||'').trim()||'v1.0';
-  const komm   =($id('vpm-comment').value||'').trim();
-  const status =($id('vpm-status').value||'').trim();
-  $id('vpm-err').style.display='none';
-  closeVpUploadModal();
-  toast(`⬆ Lade "${vpmFile.name}" hoch…`,'info');
-
-  try {
-    // 0. Get real SP webUrl for the parent file (join key for Datei-Link)
-    let parentWebUrl = selected.webUrl||'';
-    const parentItemId = selected.id||'';
-    if (!parentWebUrl) {
-      try {
-        const fresh = await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`);
-        parentWebUrl = fresh.webUrl||'';
-      } catch {}
-    }
-    console.log('[VP] parent webUrl:', parentWebUrl, 'id:', parentItemId);
-
-    // 1. Upload version file
-    const safeVer  = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
-    const destName = `${safeVer}_${vpmFile.name}`;
-    const fid      = pathStack[pathStack.length-1]?.id||'root';
-    const uploadUrl = fid==='root'
-      ? `/drives/${drive.id}/root:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`
-      : `/drives/${drive.id}/items/${fid}:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
-    const buf      = await vpmFile.arrayBuffer();
-    const uploaded = await gPut(uploadUrl, buf, vpmFile.type||'application/octet-stream');
-    const dlUrl    = uploaded['@microsoft.graph.downloadUrl']||'';
-    const webUrl   = uploaded.webUrl||'';
-    // webUrl is the permanent SharePoint URL - use for both open AND download
-    // dlUrl (@microsoft.graph.downloadUrl) expires in ~60min - don't store it
-    const fileUrl  = webUrl || dlUrl;
-    console.log('[VP] uploaded file webUrl:', webUrl, 'id:', uploaded.id);
-
-    // 2. Build fields
-    const linkColName   = vpField('Dateilink');
-    const fileItemIdCol = vpField('FileItemId');
-    const fields = { Title: selected.name };
-    const mappings = {
-      VersionNr: ver, Kommentar: komm, Status_: status,
-      Datum:     new Date().toISOString(),
-      Autor:     account?.name||account?.username||'',
-      DateiName: destName, DateiUrl: fileUrl,
-      FileItemId:parentItemId, DriveId:drive.id||'',
-    };
-    for (const [lg,val] of Object.entries(mappings)) {
-      if (!val) continue;
-      const col = vpField(lg);
-      if (col) fields[col] = val;
-    }
-    // Datei-Link = SP webUrl of the parent file (the 1:1 join key)
-    if (linkColName && parentWebUrl) fields[linkColName] = parentWebUrl;
-    // Also store item ID directly if column exists
-    if (fileItemIdCol) fields[fileItemIdCol] = parentItemId;
-
-    // 3. Progressive POST (try plain string, then Hyperlink object, then minimal)
-    const attempts = [
-      ()=>gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields}),
-      ()=>{ const f2={...fields};
-            if(linkColName&&parentWebUrl) f2[linkColName]={Url:parentWebUrl,Description:selected.name};
-            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:f2}); },
-      ()=>{ const fMin={Title:selected.name};
-            ['VersionNr','Kommentar','Status_','DateiName','FileItemId'].forEach(lg=>{
-              const c=vpField(lg); const v=mappings[lg]; if(c&&v) fMin[c]=v;
-            });
-            if(fileItemIdCol) fMin[fileItemIdCol]=parentItemId;
-            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:fMin}); },
-      ()=>gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:{Title:selected.name}}),
-    ];
-    for(let i=0;i<attempts.length;i++){
-      try{ await attempts[i](); console.log(`[VP] success attempt ${i+1}`); break; }
-      catch(err){ console.warn(`[VP] attempt ${i+1}:`,err.message); if(i===attempts.length-1) throw err; }
-    }
-    toast(`"${destName}" ✓ hochgeladen & Eintrag angelegt`,'success');
-    vpmFile=null;
-    if(selected) await loadVpEntries(selected);
-  } catch(e) {
-    toast('VP-Upload-Fehler: '+e.message,'error');
-  }
-}
 
 
 // File handler for "📎 Datei" button on existing entry (re-upload/replace)
@@ -2225,34 +2147,6 @@ async function vpAttachFile(itemId) {
   inp.click();
 }
 
-async function doVpFileReplace(itemId, file) {
-  if(!drive||!selected) return;
-  toast(`⬆ Lade „${file.name}" hoch…`,'info');
-  try {
-    const fid=pathStack[pathStack.length-1]?.id||'root';
-    const destName=file.name;
-    let uploadUrl;
-    if(fid==='root') {
-      uploadUrl=`/drives/${drive.id}/root:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
-    } else {
-      uploadUrl=`/drives/${drive.id}/items/${fid}:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
-    }
-    const buf=await file.arrayBuffer();
-    const uploaded=await gPut(uploadUrl, buf, file.type||'application/octet-stream');
-    const dlUrl = uploaded['@microsoft.graph.downloadUrl']||'';
-    const webUrl= uploaded.webUrl||'';
-    // Update list item with new file reference
-    const patchFields = buildVpFields({
-      DateiName: destName, DateiUrl: dlUrl, WebUrl: webUrl,
-      Dateilink: webUrl ? {Url:webUrl, Description:destName} : undefined,
-    });
-    if(Object.keys(patchFields).length > 0) {
-      await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, patchFields).catch(()=>{});
-    }
-    toast(`Datei ersetzt ✓`,'success');
-    if(selected) await loadVpEntries(selected);
-  } catch(e) { toast('Fehler: '+e.message,'error'); }
-}
 
 function vpDownload(url, name) {
   if(!url){toast('Keine Datei verknüpft','info');return;}
@@ -2691,11 +2585,17 @@ function renderMainVpTree(item, entries) {
         if (typeof val==='object' && val?.Url) { dlUrl=val.Url; if(!dlNm&&val.Description) dlNm=val.Description; break; }
       }
 
-      // 2. Check list item Attachments array (populated by $expand=fields on list items)
-      if (!dlUrl && it.AttachmentFiles) {
-        const att = it.AttachmentFiles?.value?.[0] || it.AttachmentFiles?.[0];
-        if (att?.ServerRelativeUrl) {
-          dlUrl = `${vpSiteWebUrl}${att.ServerRelativeUrl}`;
+      // 2. Check AttachmentFiles fetched via SP REST (ServerRelativeUrl format)
+      if (!dlUrl && it.AttachmentFiles && it.AttachmentFiles.length) {
+        const att = it.AttachmentFiles[0];
+        if (att.ServerRelativeUrl) {
+          // Build absolute URL from site base
+          const siteBase = vpSiteWebUrl ? vpSiteWebUrl.replace(/\/sites\/[^/]+.*/i, '') + att.ServerRelativeUrl
+                                        : att.ServerRelativeUrl;
+          dlUrl = siteBase;
+          if (!dlNm) dlNm = att.FileName || '';
+        } else if (att.AbsoluteUri || att.absoluteUri) {
+          dlUrl = att.AbsoluteUri || att.absoluteUri;
           if (!dlNm) dlNm = att.FileName || '';
         }
       }
