@@ -587,7 +587,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
   background:var(--blue);border:2.5px solid var(--surface);
   box-shadow:0 0 0 2px var(--blue);flex-shrink:0;
 }
-.mv-node.latest::before{background:var(--green);box-shadow:0 0 0 2px var(--green);}
+.mv-node.latest::before{background:var(--blue);box-shadow:0 0 0 2px var(--blue);}
 .mv-node.faded-1{opacity:.72;}
 .mv-node.faded-2{opacity:.48;}
 .mv-node.faded-3{opacity:.28;}
@@ -598,7 +598,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
   transition:box-shadow .12s,border-color .12s;
 }
 .mv-node:hover .mv-card{box-shadow:var(--shadow-sm);border-color:var(--border2);}
-.mv-node.latest .mv-card{background:rgba(22,163,74,.04);border-color:rgba(22,163,74,.3);}
+.mv-node.latest .mv-card{}
 .mv-card-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;}
 .mv-ver-pill{font-size:11px;font-weight:700;background:var(--navy);color:#fff;padding:2px 8px;border-radius:5px;}
 .mv-node.latest .mv-ver-pill{background:var(--green);}
@@ -798,7 +798,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
       <div style="font-size:13px;font-weight:600;color:var(--text-muted);">Klicken oder Datei hier ablegen</div>
       <div id="vpm-fname" style="font-size:11px;color:var(--green);margin-top:5px;display:none;"></div>
     </div>
-    <input type="file" id="vpm-file" style="display:none;" onchange="vpmSetFile(this.files[0])"/>
+    <input type="file" id="vpm-file" multiple style="display:none;" onchange="vpmSetFiles(this.files)"/>
     <!-- Version fields -->
     <div style="display:grid;grid-template-columns:90px 1fr;gap:7px;margin-bottom:7px;">
       <input id="vpm-ver" type="text" placeholder="v1.0" style="padding:8px 10px;border:1.5px solid var(--border2);border-radius:var(--r-sm);font-family:inherit;font-size:12px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
@@ -2089,149 +2089,127 @@ async function saveVpEdit(el, itemId) {
 let vpmFile = null;
 
 async function doVpUpload() {
-  if(!vpmFile||!selected) {
-    $id('vpm-err').textContent='Bitte eine Datei auswählen.';
+  if(!vpmFile || (Array.isArray(vpmFile) && !vpmFile.length)||(!Array.isArray(vpmFile)&&!vpmFile)) {
+    $id('vpm-err').textContent='Bitte eine oder mehrere Dateien auswählen.';
     $id('vpm-err').style.display='block'; return;
   }
   if(!vpSiteId||!vpListId) {
     $id('vpm-err').textContent='Liste nicht verbunden – bitte warten.';
     $id('vpm-err').style.display='block';
-    await initVpList();  // wait for it!
-    if(!vpSiteId||!vpListId) {
-      $id('vpm-err').textContent='Liste konnte nicht verbunden werden.';
-      return;
-    }
+    await initVpList();
+    if(!vpSiteId||!vpListId) { $id('vpm-err').textContent='Liste nicht erreichbar.'; return; }
   }
-  const ver    = ($id('vpm-ver').value||'').trim()||'v1.0';
-  const komm   = ($id('vpm-comment').value||'').trim();
-  const status = ($id('vpm-status').value||'').trim();
+
+  // Collect base version from input — each file gets an incremented sub-version
+  const baseVer  = parseFloat(($id('vpm-ver').value||'1').replace(/[^0-9.]/g,''))||1;
+  const komm     = ($id('vpm-comment').value||'').trim();
+  const status   = ($id('vpm-status').value||'').trim();
   $id('vpm-err').style.display='none';
   closeVpUploadModal();
 
-  // Debug log visible in UI
-  const dbg = [];
-  const log = (...args) => { const s=args.join(' '); console.log(s); dbg.push(s); };
+  const files = Array.isArray(vpmFile) ? vpmFile : [vpmFile];
+  const dbg = []; const log = (...a)=>{ const s=a.join(' '); console.log(s); dbg.push(s); };
 
-  log('=== VP UPLOAD DEBUG ===');
-  log('ver:', ver, '| vpSiteId:', vpSiteId?.substring(0,20), '| vpListId:', vpListId?.substring(0,20));
-  log('VP_COLS:', JSON.stringify(VP_COLS));
-  log('vpColumns keys:', Object.keys(vpColumns).join(', '));
+  log(`=== VP UPLOAD: ${files.length} Datei(en) ===`);
 
-  toast(`⬆ Version ${ver} wird gespeichert…`, 'info');
+  let successCount = 0;
+  for (let fi = 0; fi < files.length; fi++) {
+    const file = files[fi];
+    const ver  = files.length === 1 ? `v${baseVer}` : `v${(baseVer + fi * 0.1).toFixed(1)}`;
+    toast(`⬆ [${fi+1}/${files.length}] ${file.name}…`, 'info');
+    log(`--- File ${fi+1}: ${file.name}, ver: ${ver} ---`);
 
-  try {
-    // Step 1: Parent webUrl
-    let parentWebUrl = selected.webUrl || '';
-    const parentItemId = selected.id || '';
-    if (!parentWebUrl && drive && parentItemId) {
-      try {
-        const fr = await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`);
-        parentWebUrl = fr.webUrl || '';
-      } catch {}
-    }
-    log('parentWebUrl:', parentWebUrl.substring(0,60));
-
-    // Step 2: Upload file
-    const safeTitle  = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
-    const safeVer    = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
-    const attachName = `${safeVer}_${vpmFile.name}`;
-    const buf        = await vpmFile.arrayBuffer();
-    let fileWebUrl   = '';
     try {
-      const up = await gPut(
-        `/sites/${vpSiteId}/drive/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`,
-        buf, vpmFile.type||'application/octet-stream'
-      );
-      fileWebUrl = up.webUrl||'';
-      log('File uploaded OK:', fileWebUrl.substring(0,60));
-    } catch(e) {
-      log('Upload to IT site FAILED:', e.message);
-      if (drive) {
-        try {
-          const fid = pathStack[pathStack.length-1]?.id||'root';
-          const url = fid==='root'
-            ? `/drives/${drive.id}/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`
-            : `/drives/${drive.id}/items/${fid}:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`;
-          const up2 = await gPut(url, buf, vpmFile.type||'application/octet-stream');
-          fileWebUrl = up2.webUrl||'';
-          log('Fallback upload OK:', fileWebUrl.substring(0,60));
-        } catch(e2) { log('Fallback ALSO failed:', e2.message); }
+      // Step 1: Parent webUrl
+      let parentWebUrl = selected.webUrl||'';
+      const parentItemId = selected.id||'';
+      if (!parentWebUrl && drive && parentItemId) {
+        try { const fr=await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`); parentWebUrl=fr.webUrl||''; } catch {}
       }
-    }
 
-    // Step 3: Create list item
-    let newItem;
-    try {
-      newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,
-        {fields: {Title: selected.name}});
-      log('List item created, id:', newItem.id);
-    } catch(e) {
-      throw new Error('Liste POST fehlgeschlagen: ' + e.message);
-    }
-    const itemId = newItem.id;
-
-    // Step 4: PATCH each field
-    const patch = async (col, val, label) => {
-      if (!col || !val && val !== 0) { log('SKIP', label||col, '(empty col or val)'); return false; }
+      // Step 2: Upload file
+      const safeTitle  = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
+      const safeVer    = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
+      const attachName = `${safeVer}_${file.name}`;
+      const buf        = await file.arrayBuffer();
+      let fileWebUrl   = '';
       try {
-        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, {[col]: val});
-        log('PATCH OK:', label||col, '=', String(val).substring(0,50));
-        return true;
+        const up = await gPut(
+          `/sites/${vpSiteId}/drive/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`,
+          buf, file.type||'application/octet-stream'
+        );
+        fileWebUrl = up.webUrl||'';
+        log('Upload OK:', fileWebUrl.substring(0,60));
       } catch(e) {
-        log('PATCH FAIL:', label||col, '['+col+']', e.message.substring(0,80));
-        return false;
+        log('Upload IT-Site failed, trying current drive:', e.message);
+        if (drive) {
+          try {
+            const fid=pathStack[pathStack.length-1]?.id||'root';
+            const url=fid==='root'
+              ? `/drives/${drive.id}/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`
+              : `/drives/${drive.id}/items/${fid}:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`;
+            const up2=await gPut(url,buf,file.type||'application/octet-stream');
+            fileWebUrl=up2.webUrl||'';
+            log('Fallback upload OK:', fileWebUrl.substring(0,60));
+          } catch(e2){ log('Fallback FAIL:', e2.message); }
+        }
       }
-    };
 
-    await patch(VP_COLS.VersionNr || 'Versionsnummer',
-      // SP Versionsnummer is a NUMBER column — strip "v" and parse as float
-      parseFloat((ver||'0').replace(/[^0-9.]/g,'')) || 0,
-      'VersionNr');
-    if (komm)   await patch(VP_COLS.Kommentar || 'Kommentar', komm, 'Kommentar');
-    if (status) await patch(VP_COLS.Status_   || 'Status', status, 'Status');
-    await patch(VP_COLS.Datum || 'Datum', new Date().toISOString(), 'Datum');
-    if (VP_COLS.DateiName) await patch(VP_COLS.DateiName, attachName, 'DateiName');
+      // Step 3: Create list item
+      const newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,
+        {fields:{Title:selected.name}});
+      const itemId = newItem.id;
+      log('List item id:', itemId);
 
-    // Datei-Link is a HYPERLINK column — Graph requires separate Url and Desc fields:
-    // e.g. "Datei_x002d_LinkUrl" and "Datei_x002d_LinkDesc"
-    if (fileWebUrl) {
-      const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
-      log('Datei-Link via SP REST:', linkCol, fileWebUrl.substring(0,60));
-      const dlOk = await patchSpHyperlink(itemId, linkCol, fileWebUrl, attachName);
-      if (dlOk) log('PATCH OK: DateiLink (SP REST) ✓');
-      else       log('PATCH FAIL: DateiLink (SP REST) - see console');
+      // Step 4: PATCH fields
+      const patch = async (col,val,lbl) => {
+        if(!col||!val&&val!==0){log('SKIP',lbl||col);return false;}
+        try{
+          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,{[col]:val});
+          log('OK',lbl||col,'=',String(val).substring(0,50)); return true;
+        } catch(e){log('FAIL',lbl||col,e.message.substring(0,60));return false;}
+      };
+
+      await patch(VP_COLS.VersionNr||'Versionsnummer', parseFloat(ver.replace(/[^0-9.]/g,''))||baseVer+fi*0.1, 'VersionNr');
+      if(komm)   await patch(VP_COLS.Kommentar||'Kommentar', komm, 'Kommentar');
+      if(status) await patch(VP_COLS.Status_||'Status', status, 'Status');
+      await patch(VP_COLS.Datum||'Datum', new Date().toISOString(), 'Datum');
+      if(VP_COLS.DateiName) await patch(VP_COLS.DateiName, attachName, 'DateiName');
+
+      if (fileWebUrl) {
+        const linkCol = VP_COLS.DateiLink||'Datei_x002d_Link';
+        const ok = await patchSpHyperlink(itemId, linkCol, fileWebUrl, attachName);
+        log(ok?'DateiLink OK (SP REST)':'DateiLink FAIL (SP REST)');
+      }
+
+      successCount++;
+    } catch(e) {
+      log('ERROR:', e.message);
+      toast(`Fehler bei ${file.name}: ${e.message}`, 'error');
     }
-
-    log('=== DONE ===');
-
-    // Show debug in a persistent toast so user can read it
-    const debugText = dbg.join('\n');
-    const dbgDiv = document.createElement('div');
-    dbgDiv.style.cssText='position:fixed;bottom:80px;right:20px;width:480px;max-height:300px;overflow:auto;background:#0a1f3c;color:#7dd3fc;font-size:10px;font-family:monospace;padding:12px;border-radius:8px;z-index:9999;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,.5);';
-    dbgDiv.textContent = debugText;
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent='✕';
-    closeBtn.style.cssText='position:absolute;top:6px;right:8px;background:none;border:none;color:#7dd3fc;cursor:pointer;font-size:14px;';
-    closeBtn.onclick=()=>dbgDiv.remove();
-    dbgDiv.appendChild(closeBtn);
-    document.body.appendChild(dbgDiv);
-    setTimeout(()=>dbgDiv?.remove(), 30000);
-
-    toast(fileWebUrl ? `✓ Version ${ver} gespeichert` : `✓ Version ${ver} (kein Datei-Link)`, 'success');
-    vpmFile = null;
-    if (selected) await loadVpEntries(selected);
-  } catch(e) {
-    toast('VP-Upload-Fehler: ' + e.message, 'error');
-    console.error('[VP]', e);
   }
+
+  log(`=== DONE: ${successCount}/${files.length} erfolgreich ===`);
+
+  // Show debug panel
+  const dbgDiv=document.createElement('div');
+  dbgDiv.style.cssText='position:fixed;bottom:80px;right:20px;width:480px;max-height:280px;overflow:auto;background:#0a1f3c;color:#7dd3fc;font-size:10px;font-family:monospace;padding:12px;border-radius:8px;z-index:9999;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,.5);';
+  dbgDiv.textContent=dbg.join('\n');
+  const cb=document.createElement('button');
+  cb.textContent='✕';cb.style.cssText='position:absolute;top:6px;right:8px;background:none;border:none;color:#7dd3fc;cursor:pointer;font-size:14px;';
+  cb.onclick=()=>dbgDiv.remove(); dbgDiv.appendChild(cb);
+  document.body.appendChild(dbgDiv);
+  setTimeout(()=>dbgDiv?.remove(), 25000);
+
+  toast(`✓ ${successCount} Version(en) gespeichert`, 'success');
+  vpmFile=null;
+  if(selected) await loadVpEntries(selected);
 }
-
-
 
 function openVpUploadModal(prefilledVer='') {
   if(!selected){toast('Bitte zuerst eine Datei auswählen','info');return;}
   vpmFile=null;
-  $id('vpm-file').value='';
+  $id('vpm-file').value=''; // reset file input
   $id('vpm-comment').value='';
   $id('vpm-status').value='';
   $id('vpm-ver').value = prefilledVer||'';
@@ -2251,17 +2229,23 @@ function vpmDrop(e) {
   e.preventDefault();
   $id('vpm-drop').style.borderColor='var(--border2)';
   $id('vpm-drop').style.background='var(--bg)';
-  if(e.dataTransfer.files[0]) vpmSetFile(e.dataTransfer.files[0]);
+  if(e.dataTransfer.files.length) vpmSetFiles(e.dataTransfer.files);
 }
-function vpmSetFile(f) {
-  if(!f) return;
-  vpmFile=f;
+function vpmSetFiles(files) {
+  if(!files||!files.length) return;
+  vpmFile = Array.from(files); // store as array
   const el=$id('vpm-fname');
-  el.textContent='✓ '+f.name+' ('+fmtSize(f.size)+')';
+  if(vpmFile.length===1) {
+    el.textContent='✓ '+vpmFile[0].name+' ('+fmtSize(vpmFile[0].size)+')';
+  } else {
+    el.textContent='✓ '+vpmFile.length+' Dateien ('
+      +fmtSize(vpmFile.reduce((s,f)=>s+f.size,0))+')';
+  }
   el.style.display='block';
   $id('vpm-confirm').style.opacity='1';
   $id('vpm-confirm').style.pointerEvents='all';
 }
+function vpmSetFile(f) { if(f) vpmSetFiles([f]); }
 
 
 
@@ -2757,12 +2741,12 @@ function renderMainVpTree(item, entries) {
                       : stat.toLowerCase().includes('teil') ? 'partial' : '';
 
       const node = document.createElement('div');
-      node.className = 'mv-node' + (isLatest?' latest':'');
+      node.className = 'mv-node';
       node.innerHTML = `
         <div class="mv-card">
           <div class="mv-card-head">
             <span class="mv-ver-pill">${esc(ver)}</span>
-            
+            ${dlNm?`<span style="font-size:10px;color:var(--text-muted);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;">${esc(dlNm)}</span>`:''}
             ${stat?`<span class="mv-status-pill ${statClass}">${esc(stat)}</span>`:''}
           </div>
           <div class="mv-meta">${dtFmt}${autor?' · '+esc(autor.split(' ')[0]):''}</div>
@@ -2791,16 +2775,27 @@ function renderMainVpTree(item, entries) {
           </div>
         </div>`;
 
-      // Always wire open/download regardless of dlUrl state
       node.querySelector('.mv-act.open')?.addEventListener('click', e=>{
         e.stopPropagation();
         if (dlUrl) window.open(dlUrl,'_blank');
-        else toast('Keine URL – Version wurde möglicherweise nicht korrekt gespeichert.','info');
+        else toast('Keine URL gespeichert.','info');
       });
-      node.querySelector('.mv-act.dl')?.addEventListener('click', e=>{
+      node.querySelector('.mv-act.dl')?.addEventListener('click', async e=>{
         e.stopPropagation();
-        if (dlUrl) vpDownload(dlUrl, dlNm||ver+'_'+item.name);
-        else toast('Keine Download-URL.','info');
+        if (!dlUrl) { toast('Keine Download-URL.','info'); return; }
+        // Try to get a fresh Graph downloadUrl (forces save dialog)
+        // The stored webUrl is a SP page URL — we need the actual file download URL
+        // Find the file in the IT site drive via its webUrl path
+        try {
+          // Extract path from webUrl and fetch via SP drive
+          const urlObj = new URL(dlUrl);
+          const relPath = decodeURIComponent(urlObj.pathname);
+          const fresh = await gGet(`/sites/${vpSiteId}/drive/root:${relPath}?$select=@microsoft.graph.downloadUrl,name`);
+          const dlDirect = fresh['@microsoft.graph.downloadUrl'];
+          if (dlDirect) { vpDownload(dlDirect, dlNm||ver+'.file'); return; }
+        } catch {}
+        // Fallback: use webUrl with download param
+        vpDownload(dlUrl.includes('?') ? dlUrl+'&download=1' : dlUrl+'?download=1', dlNm||ver+'.file');
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
