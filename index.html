@@ -699,13 +699,14 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
         <div id="pinned-list"></div>
       </div>
 
+      <!-- Pinned drives – always visible after login -->
+      <div class="pinned-drives-sec" id="pinned-drives-sec" style="display:none;">
+        <div class="sb-sec-label">📌 Gemerkte Bibliotheken</div>
+        <div id="pinned-drives-list"></div>
+      </div>
+
       <!-- 3. Drives (shown after site selected) -->
       <div id="drives-wrap" style="display:none;">
-        <!-- Pinned drives -->
-        <div class="pinned-drives-sec" id="pinned-drives-sec" style="display:none;">
-          <div class="sb-sec-label">📌 Gemerkte Bibliotheken</div>
-          <div id="pinned-drives-list"></div>
-        </div>
         <div class="drives-wrap">
           <div class="sb-sec-label" style="display:flex;align-items:center;justify-content:space-between;">
             <span>Dokumentenbibliotheken</span>
@@ -1125,6 +1126,8 @@ function vpField(logical) {
     'DateiName':    ['DateiName','Dateiname','AnhangName','FileName','Datei_x0020_Name'],
     'DateiUrl':     ['DateiUrl','AttachmentUrl','WebUrl','DateiLink','Datei_x002d_Link',
                      'Datei_x0020_Link','DateiName'],
+    'FileItemId':   ['FileItemId','DriveItemId','ItemId','Datei_x002d_ID','DateiID'],
+    'DriveId':      ['DriveId','Drive_x002d_ID','DriveID'],
   };
   const options = aliases[logical] || [logical];
   for (const opt of options) {
@@ -1480,9 +1483,10 @@ async function loadFolder(folderId) {
   $id('main').innerHTML='<div class="spinner"></div>';
   updateBreadcrumb(); closeVersionPanel(); hideMainVersionOverlay();
   try {
+    // Include webUrl explicitly so version panel can use it as Datei-Link join key
     const url=folderId==='root'
-      ?`/drives/${drive.id}/root/children?$top=200&$orderby=name`
-      :`/drives/${drive.id}/items/${folderId}/children?$top=200&$orderby=name`;
+      ?`/drives/${drive.id}/root/children?$top=200&$orderby=name&$select=id,name,size,file,folder,webUrl,lastModifiedDateTime,lastModifiedBy,@microsoft.graph.downloadUrl`
+      :`/drives/${drive.id}/items/${folderId}/children?$top=200&$orderby=name&$select=id,name,size,file,folder,webUrl,lastModifiedDateTime,lastModifiedBy,@microsoft.graph.downloadUrl`;
     const d=await gGet(url);
     const items=(d.value||[]).sort((a,b)=>{
       if(a.folder&&!b.folder)return -1; if(!a.folder&&b.folder)return 1;
@@ -1760,40 +1764,34 @@ async function loadVpEntries(item) {
       prefer
     );
     const all = d.value||[];
-    const linkField   = vpField('Dateilink');
+    const fileItemId  = item.id||'';
     const fileWebUrl  = (item.webUrl||'').toLowerCase().replace(/\?.*$/,'');
-    const fileWebUrlE = encodeURIComponent(item.name||'').toLowerCase();
     const fileName    = (item.name||'').toLowerCase();
+    const fileItemIdCol = vpField('FileItemId');
 
-    // Log available columns for debugging (visible in browser console)
-    if(all.length) console.log('[VP] sample fields:', Object.keys(all[0].fields||{}));
-    console.log('[VP] linkField resolved to:', linkField, '| fileWebUrl:', fileWebUrl);
+    if(all.length) console.log('[VP] fields in first item:', Object.keys(all[0].fields||{}));
+    console.log('[VP] matching: id='+fileItemId+' webUrl='+fileWebUrl+' name='+fileName);
 
     const filtered = all.filter(it=>{
       const f=it.fields||{};
 
-      // Check every URL/link field in case our alias didn't find the right one
-      const urlFields = Object.keys(f).filter(k=>{
-        const v=f[k];
-        return typeof v==='string' && (v.startsWith('http')||v.includes('/sites/'))
-          || (typeof v==='object' && v?.Url);
-      });
+      // 1. Match by stored FileItemId (most reliable)
+      if(fileItemIdCol && f[fileItemIdCol]===fileItemId) return true;
+      if(f.FileItemId===fileItemId || f.fileItemId===fileItemId) return true;
 
-      for(const k of urlFields){
-        const raw=f[k];
-        const urlStr=typeof raw==='object'?(raw?.Url||raw?.url||'').toLowerCase():(raw||'').toLowerCase();
-        const urlClean=urlStr.replace(/\?.*$/,'');
-        if(!urlClean) continue;
-        // Exact URL match
-        if(urlClean===fileWebUrl) return true;
-        // Filename in URL
-        if(urlClean.includes(fileWebUrlE)) return true;
-        if(urlClean.includes(encodeURIComponent(item.name||'').toLowerCase())) return true;
-        // Decoded match
-        try { if(decodeURIComponent(urlClean).includes(fileName)) return true; } catch{}
-      }
-      // Also check Title == filename
+      // 2. Match by Title (filename)
       if((f.Title||'').toLowerCase()===fileName) return true;
+
+      // 3. Match by any URL field containing the filename or matching the webUrl
+      for(const [k,v] of Object.entries(f)){
+        if(!v) continue;
+        const urlStr = typeof v==='object'?(v?.Url||v?.url||'').toLowerCase():(typeof v==='string'?v.toLowerCase():'');
+        if(!urlStr.startsWith('http')) continue;
+        const urlClean = urlStr.replace(/\?.*$/,'');
+        if(urlClean===fileWebUrl) return true;
+        const decoded = (() => { try{return decodeURIComponent(urlClean);}catch{return urlClean;} })();
+        if(decoded.includes(fileName)) return true;
+      }
       return false;
     });
 
@@ -1970,6 +1968,7 @@ async function doVpUpload() {
 
     // 3. Build fields – only use columns that exist, handle Hyperlink type correctly
     const fields = {};
+    // Title = "filename::itemID" so we can filter by ID even without Datei-Link
     fields['Title'] = selected.name;
 
     // Map each logical field to its real SP column name
@@ -1978,7 +1977,10 @@ async function doVpUpload() {
       Datum:     new Date().toISOString(),
       Autor:     account?.name||account?.username||'',
       DateiName: destName,
-      DateiUrl:  fileUrl,    // plain text URL field
+      DateiUrl:  fileUrl,
+      // Store item ID in a plain text field so filtering works reliably
+      FileItemId:selected.id,
+      DriveId:   drive.id||'',
     };
     for (const [logical, val] of Object.entries(mappings)) {
       if (!val) continue;
@@ -1988,7 +1990,6 @@ async function doVpUpload() {
 
     // Datei-Link: try as plain text first; SP Hyperlink fields may need {Url,Description}
     if (linkColName && parentUrl) {
-      // Try plain string first – if that's what the column expects
       fields[linkColName] = parentUrl;
     }
 
@@ -2631,9 +2632,19 @@ function renderMainVpTree(item, entries) {
   }
 
   overlay.appendChild(widget);
-  const rowWrap = card.closest('.tree-row-wrap') || card.closest('.tree-node') || card;
-  const parent  = rowWrap.parentNode;
-  parent.insertBefore(overlay, rowWrap.nextSibling);
+
+  // Insert overlay directly after the file's row (before children container)
+  // The tree structure is: .tree-node > .tree-row-wrap + .tree-children
+  // We insert after .tree-row-wrap so it appears between the file row and its children
+  const rowWrap = card.closest('.tree-row-wrap');
+  if (rowWrap) {
+    // Insert after the row-wrap, before tree-children
+    rowWrap.parentNode.insertBefore(overlay, rowWrap.nextSibling);
+  } else {
+    // List view: insert after the list-item
+    const listItem = card.closest('.list-item') || card;
+    listItem.parentNode.insertBefore(overlay, listItem.nextSibling);
+  }
 
   // Focus version input
   setTimeout(()=>widget.querySelector('.mv-add-ver')?.focus(), 80);
