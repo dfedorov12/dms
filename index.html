@@ -263,7 +263,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 
 /* Version panel */
 #version-panel{position:fixed;top:58px;right:0;bottom:0;width:var(--panel);background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:-6px 0 24px rgba(10,31,60,0.10);}
-#version-panel.open{transform:translateX(0);}
+#version-panel.open{transform:translateX(100%);}
 .vp-hdr{background:var(--navy2);padding:14px 16px;display:flex;align-items:flex-start;gap:12px;flex-shrink:0;}
 .vp-icon{font-size:24px;flex-shrink:0;margin-top:2px;}
 .vp-info{flex:1;min-width:0;}
@@ -744,57 +744,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
   </div>
 </div>
 
-<!-- VERSION PANEL -->
-<div id="version-panel">
-  <div class="vp-hdr">
-    <div class="vp-icon" id="vp-icon">📄</div>
-    <div class="vp-info">
-      <div class="vp-name" id="vp-name">—</div>
-      <div class="vp-path" id="vp-path"></div>
-    </div>
-    <button class="vp-close" onclick="closeVersionPanel()">✕</button>
-  </div>
 
-  <!-- File actions bar -->
-  <div class="vp-acts">
-    <button class="vp-act primary" onclick="openVpUploadModal()" title="Datei hochladen & Versionseintrag anlegen">⬆ Version</button>
-    <button class="vp-act" id="vp-dl-btn" title="Aktuelle Datei herunterladen (aus Drive)">⬇ Download</button>
-    <button class="vp-act del" onclick="deleteSelectedFile()" title="Datei aus Drive löschen">🗑</button>
-  </div>
-
-  <!-- Versionsprotokoll (single pane, timeline style) -->
-  <div id="vp-custom-pane" class="vp-pane">
-    <div id="vp-add-form" style="padding:10px 13px;border-bottom:1px solid var(--border);background:var(--bg);">
-      <div style="font-size:9px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;">➕ Versionseintrag</div>
-      <div style="display:grid;grid-template-columns:72px 1fr;gap:5px;margin-bottom:5px;">
-        <input id="vp-add-ver" type="text" placeholder="v1.0" style="padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
-        <input id="vp-add-comment" type="text" placeholder="Was wurde geändert?" style="padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'" onkeydown="if(event.key==='Enter')addVpEntry()"/>
-      </div>
-      <div style="display:flex;gap:5px;margin-bottom:5px;">
-        <input id="vp-add-status" type="text" placeholder="Status (Entwurf, Final…)" style="flex:1;padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
-        <button onclick="addVpEntry()" style="background:var(--red);border:none;color:#fff;padding:5px 13px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">Eintragen</button>
-      </div>
-      <!-- File attach drop zone -->
-      <div class="vp-file-drop" id="vp-file-drop"
-           onclick="$id('vp-file-input').click()"
-           ondragover="event.preventDefault();this.classList.add('on')"
-           ondragleave="this.classList.remove('on')"
-           ondrop="vpHandleFileDrop(event)">
-        📎 Datei anhängen (optional – Klicken oder ablegen)
-      </div>
-      <input type="file" id="vp-file-input" style="display:none;" onchange="vpSetFile(this.files[0])"/>
-      <div id="vp-file-name" style="font-size:10px;color:var(--green);margin-top:4px;display:none;"></div>
-      <div id="vp-add-err" style="font-size:11px;color:var(--red);margin-top:4px;display:none;"></div>
-    </div>
-    <div class="vp-body" style="flex:1;overflow-y:auto;">
-      <div class="vp-sec-label">
-        <span>Verlauf · Versionsprotokoll</span>
-        <span id="vp-custom-cnt" style="color:var(--amber);font-size:11px;"></span>
-      </div>
-      <div id="vp-custom-list"><div class="spinner sm"></div></div>
-    </div>
-  </div>
-</div>
 
 <!-- UPLOAD MODAL -->
 <div id="modal-ov" onclick="if(event.target===this)closeUploadModal()">
@@ -1186,16 +1136,25 @@ function vpField(logical) {
   return null; // column doesn't exist in this list
 }
 
-// Build a safe fields object using only columns that actually exist
+// SP read-only / system fields that must NEVER be set via Graph POST/PATCH
+const SP_READONLY = new Set([
+  '_UIVersionString','_UIVersion','Modified','Created','Author','Editor',
+  'ID','Id','UniqueId','owshiddenversion','_ModerationStatus','ContentType',
+  'ContentTypeId','FileSystemObjectType','ServerRedirectedEmbedUrl',
+  'CheckoutUser','_CheckinComment','ItemChildCount','FolderChildCount',
+  'Attachments','OData__UIVersionString','SMLastModifiedDate'
+]);
+
+// Build a safe fields object using only columns that actually exist and are writable
 function buildVpFields(data) {
   const out = {};
   for (const [logical, value] of Object.entries(data)) {
+    if (SP_READONLY.has(logical)) continue;      // skip read-only fields
+    if (value === undefined || value === null) continue; // skip nulls
     const realName = vpField(logical);
-    if (realName) out[realName] = value;
-    // Always include Title (required SP field)
+    if (realName && !SP_READONLY.has(realName)) out[realName] = value;
     if (logical === 'Title' && !out['Title']) out['Title'] = value;
   }
-  // Ensure Title is always set
   if (!out['Title'] && data['Title']) out['Title'] = data['Title'];
   return out;
 }
@@ -1769,43 +1728,28 @@ function switchVpTab(tab) {
 
 // ══ VERSION PANEL ═══════════════════════════════════════════════════
 async function openVersionPanel(item) {
-  selected=item;
-  $id('vp-icon').textContent=fileIcon(item);
-  $id('vp-name').textContent=item.name;
-  $id('vp-path').textContent=pathStack.map(p=>p.name).join(' › ');
-  const dlBtn=$id('vp-dl-btn');
-  if(dlBtn) dlBtn.onclick=()=>{const u=item['@microsoft.graph.downloadUrl']||item.webUrl;if(u)window.open(u,'_blank');else toast('Download-URL fehlt','error');};
-  $id('version-panel').classList.add('open');
+  selected = item;
   document.querySelectorAll('.tree-card,.list-item').forEach(c=>c.classList.remove('selected'));
   document.querySelectorAll(`[data-id="${item.id}"]`).forEach(c=>c.classList.add('selected'));
-  // Clear form fields
-  ['vp-add-ver','vp-add-comment','vp-add-status'].forEach(id=>{ const el=$id(id); if(el) el.value=''; });
-  const errEl=$id('vp-add-err'); if(errEl) errEl.style.display='none';
-  // Show loading state in main tree immediately
+  // Show inline tree immediately (loading state)
   renderMainVpTree(item, null);
-  // Load VP entries (also updates the main view tree on completion)
+  // Load entries → updates inline tree
   await loadVpEntries(item);
 }
 
 function closeVersionPanel() {
-  $id('version-panel').classList.remove('open');
   document.querySelectorAll('.tree-card,.list-item').forEach(c=>c.classList.remove('selected'));
   clearMainVpTree();
-  selected=null;
+  selected = null;
 }
 
 // ══ CUSTOM VP LIST (Versionsprotokoll) ════════════════════════════════
 async function loadVpEntries(item) {
-  const c=$id('vp-custom-list');
-  $id('vp-custom-cnt').textContent='';
-  c.innerHTML='<div class="spinner sm"></div>';
+  // Update inline tree to loading state
+  if (selected?.id === item.id) renderMainVpTree(item, null);
 
   if (!vpSiteId || !vpListId) {
-    c.innerHTML=`<div style="font-size:12px;color:var(--text-dim);padding:8px 0;line-height:1.8;">
-      Liste wird geladen…<br>
-      <a href="https://dihag.sharepoint.com/sites/IT/Lists/Versionsprotokoll/AllItems.aspx"
-         target="_blank" style="color:var(--blue);font-size:11px;font-weight:600;">↗ In SharePoint öffnen</a>
-    </div>`;
+    if (selected?.id === item.id) renderMainVpTree(item, []);
     initVpList().then(()=>{ if(vpListId&&item) loadVpEntries(item); }).catch(()=>{});
     return;
   }
@@ -1853,29 +1797,18 @@ async function loadVpEntries(item) {
       return false;
     });
 
-    c.innerHTML='';
-    $id('vp-custom-cnt').textContent=filtered.length+' Eintr.';
-
-    if (!filtered.length) {
-      c.innerHTML=`<p style="font-size:12px;color:var(--text-dim);">Noch keine Einträge für diese Datei.<br>
-        <small style="color:var(--text-dim);">Tipp: Beim Eintragen wird „Datei-Link" automatisch gesetzt.</small>
-      </p>`;
-      renderMainVersionOverlay([]);
-      return;
+    // Render inline tree in main view
+    if (selected?.id === item.id) {
+      if (!filtered.length) {
+        renderMainVpTree(item, []);
+      } else {
+        renderMainVpTree(item, filtered);
+      }
     }
 
-    const timeline=document.createElement('div');
-    timeline.className='vp-timeline';
-    filtered.forEach((it,idx)=>timeline.appendChild(mkVpEntryEl(it, idx, filtered.length)));
-    c.appendChild(timeline);
-
-    // Also render the faded tree overlay in the main view
-    renderMainVersionOverlay(filtered);
-
   } catch(e) {
-    c.innerHTML=`<p style="font-size:12px;color:var(--red);">Fehler: ${esc(e.message)}<br>
-      <a href="https://dihag.sharepoint.com/sites/IT/Lists/Versionsprotokoll/AllItems.aspx"
-         target="_blank" style="color:var(--blue);font-size:11px;">↗ Liste in SharePoint prüfen</a></p>`;
+    if (selected?.id === item.id) renderMainVpTree(item, []);
+    toast('VP-Ladefehler: '+e.message, 'error');
   }
 }
 
@@ -2115,9 +2048,15 @@ async function doVpFileReplace(itemId, file) {
 
 function vpDownload(url, name) {
   if(!url){toast('Keine Datei verknüpft','info');return;}
-  const a=document.createElement('a');
-  a.href=url; a.download=name||'download'; a.target='_blank';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  // Force download: fetch as blob and trigger save dialog
+  // Fallback: open with download hint in URL
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name || 'download';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>document.body.removeChild(a), 200);
 }
 
 // Form-based file drop (for add form drop zone)
