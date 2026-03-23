@@ -2507,36 +2507,20 @@ function renderMainVpTree(item, entries) {
   form.className = 'mv-add-strip';
   form.innerHTML = `
     <div class="mv-add-row">
-      <input class="mv-add-ver"     type="text" placeholder="v1.0"  value="${suggestedVer}" title="Versionsnummer"/>
-      <input class="mv-add-comment" type="text" placeholder="Was wurde geändert?"/>
-      <select class="mv-add-status">
-        <option value="">— Status —</option>
-        <option value="Entwurf">Entwurf</option>
-        <option value="Unterschrieben">Unterschrieben</option>
-        <option value="Teilunterschrieben">Teilunterschrieben</option>
-      </select>
-    </div>
-    <div class="mv-add-row">
-      <button class="mv-upload-btn" title="Datei hochladen + Eintrag anlegen">⬆ Version hochladen</button>
-      <span class="mv-file-badge" style="display:none;"></span>
+      <input class="mv-add-ver" type="text" placeholder="v1.0" value="${suggestedVer}" title="Versionsnummer" style="width:80px;"/>
+      <button class="mv-upload-btn" style="flex:1;font-size:13px;padding:7px 16px;font-weight:700;">⬆ Version hochladen</button>
     </div>
     <div class="mv-add-err" style="font-size:11px;color:var(--red);display:none;"></div>`;
 
   const verIn    = form.querySelector('.mv-add-ver');
-  const commIn   = form.querySelector('.mv-add-comment');
-  const statSel  = form.querySelector('.mv-add-status');
   const uploadBtn= form.querySelector('.mv-upload-btn');
-  const fileBadge= form.querySelector('.mv-file-badge');
   const errEl    = form.querySelector('.mv-add-err');
 
-  // Upload button → VP upload modal
+  // Upload button → VP upload modal, pre-fill version number
   uploadBtn.addEventListener('click', () => {
-    // Pre-fill the modal with current form values
     openVpUploadModal();
     setTimeout(()=>{
-      const mv = $id('vpm-ver');   if(mv) mv.value = verIn.value;
-      const mc = $id('vpm-comment'); if(mc) mc.value = commIn.value;
-      const ms = $id('vpm-status');  if(ms) ms.value = statSel.value;
+      const mv = $id('vpm-ver'); if(mv) mv.value = verIn.value;
     }, 50);
   });
 
@@ -2546,7 +2530,6 @@ function renderMainVpTree(item, entries) {
 
   // ── Timeline ──────────────────────────────────────────────────────
   if (entries === null) {
-    // Loading
     const tl = document.createElement('div');
     tl.className='mv-timeline';
     tl.innerHTML='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;"><div class="spinner sm"></div><span style="font-size:11px;color:var(--text-dim);">Lade Versionen…</span></div>';
@@ -2554,17 +2537,20 @@ function renderMainVpTree(item, entries) {
   } else if (!entries.length) {
     const em = document.createElement('div');
     em.className='mv-empty';
-    em.innerHTML='Noch keine Einträge.<br><small style="color:var(--text-dim);">Tipp: Beim Eintragen wird „Datei-Link" automatisch gesetzt.</small>';
+    em.innerHTML='Noch keine Einträge.<br><small style="color:var(--text-dim);">Tipp: Beim Hochladen wird „Datei-Link" automatisch gesetzt.</small>';
     widget.appendChild(em);
   } else {
     const tl = document.createElement('div');
     tl.className = 'mv-timeline';
-    tl.innerHTML = `<div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px;">🗂 ${entries.length} Version${entries.length!==1?'en':''}</div>`;
+    // Large centered header
+    const hdr = document.createElement('div');
+    hdr.style.cssText='text-align:center;font-size:13px;font-weight:700;color:var(--navy);letter-spacing:.02em;padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:12px;';
+    hdr.textContent=`🗂 Versionen verwalten  (${entries.length})`;
+    tl.appendChild(hdr);
 
     entries.forEach((it, idx) => {
       const f    = it.fields||{};
 
-      // Extract version metadata with fallbacks
       const ver  = f[vpField('VersionNr')]||f.VersionNr||f.Version||'v?';
       const komm = f[vpField('Kommentar')]||f.Kommentar||f.Comment||f.Description||'';
       const stat = f[vpField('Status_')]||f.Status_||f.Status||'';
@@ -2572,52 +2558,53 @@ function renderMainVpTree(item, entries) {
       const dt   = f[vpField('Datum')]||f.Datum||f.Date||f.Created||it.createdDateTime||'';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
 
-      // File URL: scan every possible field name and handle SP Hyperlink {Url, Description} objects
+      // File URL: exhaustive scan across all fields and SP Hyperlink objects
       let dlUrl = '';
       let dlNm  = f[vpField('DateiName')]||f.DateiName||f.Dateiname||f.FileName||'';
-      const urlFields = [
+      // Try known field names first
+      const urlFieldKeys = [
         vpField('DateiUrl'), 'DateiUrl','AttachmentUrl','WebUrl','FileUrl',
         'Datei_x002d_Link','DateiLink','Datei_x0020_Link','Link','URL','Datei'
       ];
-      for (const key of urlFields) {
+      for (const key of urlFieldKeys) {
         if (!key) continue;
         const val = f[key];
         if (!val) continue;
         if (typeof val === 'string' && val.startsWith('http')) { dlUrl=val; break; }
-        if (typeof val === 'object' && val.Url) { dlUrl=val.Url; if(!dlNm&&val.Description) dlNm=val.Description; break; }
+        if (typeof val === 'object' && val?.Url) { dlUrl=val.Url; if(!dlNm&&val.Description) dlNm=val.Description; break; }
       }
-      // Also scan ALL fields for any http URL we might have missed
+      // Scan ALL fields as fallback
       if (!dlUrl) {
         for (const [k,v] of Object.entries(f)) {
-          if (typeof v==='string' && v.startsWith('https://') && v.includes('sharepoint.com') && !k.toLowerCase().includes('site')) {
-            dlUrl=v; break;
+          if (typeof v==='string' && v.startsWith('https://') && (v.includes('sharepoint.com')||v.includes('1drv'))) {
+            if (!k.toLowerCase().includes('site')) { dlUrl=v; break; }
           }
-          if (typeof v==='object' && v?.Url?.startsWith('http')) { dlUrl=v.Url; break; }
+          if (typeof v==='object' && v?.Url?.startsWith('https://')) { dlUrl=v.Url; break; }
         }
       }
 
-      const fadeClass = idx===0?'latest':idx===1?'faded-1':idx===2?'faded-2':'faded-3';
+      // No fading – all entries fully visible (only current gets green)
+      const isLatest = idx === 0;
       const statClass = stat.toLowerCase().includes('unterschrieben') && !stat.toLowerCase().includes('teil') ? 'signed'
                       : stat.toLowerCase().includes('teil') ? 'partial' : '';
 
       const node = document.createElement('div');
-      node.className = 'mv-node ' + fadeClass;
+      node.className = 'mv-node' + (isLatest?' latest':'');
       node.innerHTML = `
         <div class="mv-card">
           <div class="mv-card-head">
             <span class="mv-ver-pill">${esc(ver)}</span>
-            ${idx===0?'<span class="mv-badge-cur">✓ Aktuell</span>':''}
+            ${isLatest?'<span class="mv-badge-cur">✓ Aktuell</span>':''}
             ${stat?`<span class="mv-status-pill ${statClass}">${esc(stat)}</span>`:''}
           </div>
           <div class="mv-meta">${dtFmt}${autor?' · '+esc(autor.split(' ')[0]):''}</div>
           ${komm?`<div class="mv-comment">${esc(komm)}</div>`:''}
           <div class="mv-acts">
-            <button class="mv-act open" ${!dlUrl?'style="opacity:.35;pointer-events:none;"':''}>↗ Öffnen</button>
-            <button class="mv-act dl"   ${!dlUrl?'style="opacity:.35;pointer-events:none;"':''}>⬇ Download</button>
-            <button class="mv-act edit">✎ Bearbeiten</button>
+            <button class="mv-act open">↗ Öffnen</button>
+            <button class="mv-act dl">⬇ Download</button>
+            <button class="mv-act edit">✎</button>
             <button class="mv-act del">🗑</button>
           </div>
-          <!-- inline edit form -->
           <div class="mv-edit-wrap" style="display:none;margin-top:8px;">
             <div style="display:grid;grid-template-columns:72px 1fr;gap:5px;margin-bottom:5px;">
               <input class="mv-edit-ver"  type="text" placeholder="v1.0" style="padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;background:#fff;"/>
@@ -2636,10 +2623,18 @@ function renderMainVpTree(item, entries) {
           </div>
         </div>`;
 
-      if(dlUrl) {
-        node.querySelector('.mv-act.open')?.addEventListener('click', e=>{ e.stopPropagation(); window.open(dlUrl,'_blank'); });
-        node.querySelector('.mv-act.dl')?.addEventListener('click', e=>{ e.stopPropagation(); vpDownload(dlUrl, dlNm||ver+'_'+item.name); });
-      }
+      // Always wire open/download regardless of dlUrl state
+      node.querySelector('.mv-act.open')?.addEventListener('click', e=>{
+        e.stopPropagation();
+        if (dlUrl) { window.open(dlUrl,'_blank'); }
+        else { toast('Keine Datei-URL gefunden. Prüfe ob die Version hochgeladen wurde.','info');
+               console.log('[VP open] all fields:', JSON.stringify(f)); }
+      });
+      node.querySelector('.mv-act.dl')?.addEventListener('click', e=>{
+        e.stopPropagation();
+        if (dlUrl) { vpDownload(dlUrl, dlNm||ver+'_'+item.name); }
+        else { toast('Keine Datei-URL gefunden.','info'); }
+      });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
       const editWrap= node.querySelector('.mv-edit-wrap');
