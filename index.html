@@ -658,8 +658,10 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
         <button class="view-tab on" id="tab-tree" onclick="setView('tree')">🗂 Kacheln</button>
         <button class="view-tab" id="tab-list" onclick="setView('list')">☰ Liste</button>
       </div>
-      <button class="hdr-btn" id="btn-upload" onclick="openUploadModal(false)" disabled>⬆ Upload</button>
-      <button class="hdr-btn" id="btn-folder" onclick="openFolderModal()" disabled>📁 Neu</button>
+      <div class="hdr-divider"></div>
+      <button class="hdr-btn" id="btn-upload" id="sb-upload-btn" onclick="openUploadModal(false)" disabled>⬆ Upload</button>
+      <button class="hdr-btn" id="btn-folder" id="sb-folder-btn" onclick="openFolderModal()" disabled>📁 Neu</button>
+      <button class="hdr-btn" id="sb-refresh-btn" onclick="refreshCurrent()" disabled>🔄</button>
       <div class="hdr-user">
         <div class="hdr-av" id="hdr-av">?</div>
         <div class="hdr-uname" id="hdr-uname">…</div>
@@ -716,13 +718,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
         </div>
       </div>
 
-      <!-- Quick actions -->
-      <div class="sb-actions">
-        <div class="sb-sec-label" style="margin-bottom:9px;">Schnellaktionen</div>
-        <button class="sb-action-btn" id="sb-upload-btn" onclick="openUploadModal(false)" disabled>⬆ Datei hochladen</button>
-        <button class="sb-action-btn" id="sb-folder-btn" onclick="openFolderModal()" disabled>📁 Ordner erstellen</button>
-        <button class="sb-action-btn" id="sb-refresh-btn" onclick="refreshCurrent()" disabled>🔄 Aktualisieren</button>
-      </div>
+
     </aside>
 
     <!-- Center -->
@@ -1968,21 +1964,23 @@ async function saveVpEdit(el, itemId) {
 let vpmFile = null;
 const VP_FOLDER = '_Versionen';
 
-function openVpUploadModal() {
+function openVpUploadModal(prefilledVer='') {
   if(!drive||!selected){toast('Bitte zuerst eine Datei auswählen','info');return;}
   vpmFile=null;
   $id('vpm-file').value='';
-  $id('vpm-ver').value='';
   $id('vpm-comment').value='';
   $id('vpm-status').value='';
+  $id('vpm-ver').value = prefilledVer || '';
   $id('vpm-fname').style.display='none';
   $id('vpm-err').style.display='none';
   $id('vpm-confirm').style.opacity='.45';
   $id('vpm-confirm').style.pointerEvents='none';
-  $id('vp-modal-sub').textContent=`Datei zu „${selected.name}" → _Versionen/`;
+  $id('vp-modal-sub').textContent=`Datei zu „${selected.name}"`;
   $id('vpm-drop').style.borderColor='var(--border2)';
   $id('vpm-drop').style.background='var(--bg)';
   $id('vp-modal-ov').style.display='flex';
+  // Focus version field if empty
+  setTimeout(()=>{ const v=$id('vpm-ver'); if(v&&!v.value) v.focus(); }, 80);
 }
 function closeVpUploadModal() { $id('vp-modal-ov').style.display='none'; }
 
@@ -2043,7 +2041,10 @@ async function doVpUpload() {
     const uploaded = await gPut(uploadUrl, buf, vpmFile.type||'application/octet-stream');
     const dlUrl    = uploaded['@microsoft.graph.downloadUrl']||'';
     const webUrl   = uploaded.webUrl||'';
-    const fileUrl  = dlUrl||webUrl;
+    // webUrl is the permanent SharePoint URL - use for both open AND download
+    // dlUrl (@microsoft.graph.downloadUrl) expires in ~60min - don't store it
+    const fileUrl  = webUrl || dlUrl;
+    console.log('[VP] uploaded file webUrl:', webUrl, 'id:', uploaded.id);
 
     // 2. Build fields
     const linkColName   = vpField('Dateilink');
@@ -2516,12 +2517,9 @@ function renderMainVpTree(item, entries) {
   const uploadBtn= form.querySelector('.mv-upload-btn');
   const errEl    = form.querySelector('.mv-add-err');
 
-  // Upload button → VP upload modal, pre-fill version number
+  // Upload button → VP upload modal, pass version number directly
   uploadBtn.addEventListener('click', () => {
-    openVpUploadModal();
-    setTimeout(()=>{
-      const mv = $id('vpm-ver'); if(mv) mv.value = verIn.value;
-    }, 50);
+    openVpUploadModal(verIn.value.trim() || suggestedVer);
   });
 
 
@@ -2544,7 +2542,7 @@ function renderMainVpTree(item, entries) {
     tl.className = 'mv-timeline';
     // Large centered header
     const hdr = document.createElement('div');
-    hdr.style.cssText='text-align:center;font-size:13px;font-weight:700;color:var(--navy);letter-spacing:.02em;padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:12px;';
+    hdr.style.cssText='text-align:center;font-size:14px;font-weight:800;color:var(--navy);letter-spacing:.01em;padding:10px 0 12px;border-bottom:2px solid var(--border);margin-bottom:14px;width:100%;';
     hdr.textContent=`🗂 Versionen verwalten  (${entries.length})`;
     tl.appendChild(hdr);
 
@@ -2626,14 +2624,24 @@ function renderMainVpTree(item, entries) {
       // Always wire open/download regardless of dlUrl state
       node.querySelector('.mv-act.open')?.addEventListener('click', e=>{
         e.stopPropagation();
-        if (dlUrl) { window.open(dlUrl,'_blank'); }
-        else { toast('Keine Datei-URL gefunden. Prüfe ob die Version hochgeladen wurde.','info');
-               console.log('[VP open] all fields:', JSON.stringify(f)); }
+        if (dlUrl) {
+          window.open(dlUrl,'_blank');
+        } else {
+          toast('Keine Datei-URL – prüfe ob die Version hochgeladen wurde.','info');
+          console.log('[VP open] entry fields:', JSON.stringify(f));
+        }
       });
       node.querySelector('.mv-act.dl')?.addEventListener('click', e=>{
         e.stopPropagation();
-        if (dlUrl) { vpDownload(dlUrl, dlNm||ver+'_'+item.name); }
-        else { toast('Keine Datei-URL gefunden.','info'); }
+        if (dlUrl) {
+          // For SharePoint webUrl: append download=1 to force download dialog
+          const downloadUrl = dlUrl.includes('?')
+            ? dlUrl + '&download=1'
+            : dlUrl + '?download=1';
+          vpDownload(downloadUrl, dlNm||ver+'_'+item.name);
+        } else {
+          toast('Keine Datei-URL gefunden.','info');
+        }
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
