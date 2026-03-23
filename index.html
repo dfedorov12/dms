@@ -538,9 +538,9 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 
   <!-- File actions bar -->
   <div class="vp-acts">
-    <button class="vp-act primary" onclick="openUploadModal(true)" title="Neue Dateiversion hochladen">⬆ Version</button>
-    <button class="vp-act" id="vp-dl-btn" title="Aktuelle Version herunterladen">⬇ Download</button>
-    <button class="vp-act del" onclick="deleteSelectedFile()" title="Datei löschen">🗑</button>
+    <button class="vp-act primary" onclick="openVpUploadModal()" title="Datei hochladen & Versionseintrag anlegen">⬆ Version</button>
+    <button class="vp-act" id="vp-dl-btn" title="Aktuelle Datei herunterladen (aus Drive)">⬇ Download</button>
+    <button class="vp-act del" onclick="deleteSelectedFile()" title="Datei aus Drive löschen">🗑</button>
   </div>
 
   <!-- Versionsprotokoll (single pane, timeline style) -->
@@ -618,6 +618,36 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 </div>
 
 <div id="toast-c"></div>
+
+<!-- VP UPLOAD MODAL -->
+<div id="vp-modal-ov" onclick="if(event.target===this)closeVpUploadModal()" style="position:fixed;inset:0;background:rgba(10,31,60,.55);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:600;">
+  <div style="background:var(--surface);border-radius:var(--r);padding:24px;width:460px;max-width:92vw;box-shadow:var(--shadow-lg);">
+    <div style="font-size:15px;font-weight:700;margin-bottom:3px;">⬆ Versionsdatei hochladen</div>
+    <div id="vp-modal-sub" style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Datei wird in <code>_Versionen/</code> gespeichert und verknüpft</div>
+    <!-- Drop zone -->
+    <div id="vpm-drop" style="border:2px dashed var(--border2);border-radius:var(--r);padding:22px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg);margin-bottom:12px;"
+         onclick="$id('vpm-file').click()"
+         ondragover="event.preventDefault();this.style.borderColor='var(--red)';this.style.background='var(--red-bg)'"
+         ondragleave="this.style.borderColor='var(--border2)';this.style.background='var(--bg)'"
+         ondrop="vpmDrop(event)">
+      <div style="font-size:26px;margin-bottom:6px;">📂</div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);">Klicken oder Datei hier ablegen</div>
+      <div id="vpm-fname" style="font-size:11px;color:var(--green);margin-top:5px;display:none;"></div>
+    </div>
+    <input type="file" id="vpm-file" style="display:none;" onchange="vpmSetFile(this.files[0])"/>
+    <!-- Version fields -->
+    <div style="display:grid;grid-template-columns:90px 1fr;gap:7px;margin-bottom:7px;">
+      <input id="vpm-ver" type="text" placeholder="v1.0" style="padding:8px 10px;border:1.5px solid var(--border2);border-radius:var(--r-sm);font-family:inherit;font-size:12px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
+      <input id="vpm-comment" type="text" placeholder="Was wurde geändert?" style="padding:8px 10px;border:1.5px solid var(--border2);border-radius:var(--r-sm);font-family:inherit;font-size:12px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'" onkeydown="if(event.key==='Enter')doVpUpload()"/>
+    </div>
+    <input id="vpm-status" type="text" placeholder="Status (z.B. Entwurf, Freigabe, Final)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border2);border-radius:var(--r-sm);font-family:inherit;font-size:12px;outline:none;margin-bottom:7px;box-sizing:border-box;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
+    <div id="vpm-err" style="font-size:11px;color:var(--red);margin-bottom:7px;display:none;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button onclick="closeVpUploadModal()" style="background:var(--bg);border:1px solid var(--border);color:var(--text-muted);padding:9px 20px;border-radius:var(--r-sm);font-size:13px;font-weight:600;">Abbrechen</button>
+      <button id="vpm-confirm" onclick="doVpUpload()" style="background:var(--red);border:none;color:#fff;padding:9px 22px;border-radius:var(--r-sm);font-size:13px;font-weight:600;opacity:.45;pointer-events:none;transition:opacity .2s;">Hochladen &amp; Eintragen</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ══ CONFIG ════════════════════════════════════════════════════════════
@@ -814,15 +844,24 @@ async function initVpList() {
   try {
     const site = await gGet(`/sites/${VP_SITE_URL}`);
     vpSiteId = site.id;
-    const lists = await gGet(`/sites/${vpSiteId}/lists?$filter=displayName eq '${encodeURIComponent(VP_LIST_NAME)}'&$top=1`);
-    if (!lists.value?.length) throw new Error('Liste nicht gefunden');
-    vpListId = lists.value[0].id;
-    // Fetch columns to find field internal names
-    const cols = await gGet(`/sites/${vpSiteId}/lists/${vpListId}/columns?$top=50`);
+    // Try exact name match first, then broader search
+    let listData;
+    try {
+      const r1 = await gGet(`/sites/${vpSiteId}/lists?$select=id,name,displayName&$top=50`);
+      listData = (r1.value||[]).find(l =>
+        l.displayName===VP_LIST_NAME || l.name===VP_LIST_NAME ||
+        l.displayName.toLowerCase().includes('version') ||
+        l.name.toLowerCase().includes('version')
+      );
+    } catch {}
+    if (!listData) throw new Error(`Liste "${VP_LIST_NAME}" nicht gefunden`);
+    vpListId = listData.id;
+    // Fetch columns
+    const cols = await gGet(`/sites/${vpSiteId}/lists/${vpListId}/columns?$top=100`);
     (cols.value||[]).forEach(c=>{ vpColumns[c.name]=c.displayName; });
-    console.log('Versionsprotokoll list ready:', vpListId, 'columns:', Object.keys(vpColumns));
+    console.log('VP list ready:', vpListId, Object.keys(vpColumns).join(','));
   } catch(e) {
-    console.warn('Versionsprotokoll list nicht erreichbar:', e.message);
+    console.warn('VP list init failed:', e.message);
   }
 }
 
@@ -1393,64 +1432,66 @@ async function loadVpEntries(item) {
   const c=$id('vp-custom-list');
   $id('vp-custom-cnt').textContent='';
   c.innerHTML='<div class="spinner sm"></div>';
+
   if (!vpSiteId || !vpListId) {
-    c.innerHTML=`<div style="font-size:12px;color:var(--text-dim);padding:8px 0;line-height:1.7;">
-      Versionsprotokoll-Liste noch nicht geladen.<br>
+    c.innerHTML=`<div style="font-size:12px;color:var(--text-dim);padding:8px 0;line-height:1.8;">
+      Liste wird geladen…<br>
       <a href="https://dihag.sharepoint.com/sites/IT/Lists/Versionsprotokoll/AllItems.aspx"
          target="_blank" style="color:var(--blue);font-size:11px;font-weight:600;">↗ In SharePoint öffnen</a>
     </div>`;
-    // Retry init
     initVpList().then(()=>{ if(vpListId&&item) loadVpEntries(item); }).catch(()=>{});
     return;
   }
-  try {
-    // Use 'Prefer: HonorNonIndexedQueriesWarningMayFailRandomly' for unindexed filter fields
-    // Primary strategy: load all items, filter client-side (works for moderate-size lists)
-    // Secondary: server-side filter with Prefer header
-    const prefer = { 'Prefer': 'HonorNonIndexedQueriesWarningMayFailRandomly' };
-    let d;
-    try {
-      // Filter by FileItemId (custom column – may not be indexed)
-      d = await gGet(
-        `/sites/${vpSiteId}/lists/${vpListId}/items?$expand=fields&$filter=fields/FileItemId eq '${item.id}'&$top=500&$orderby=fields/Created desc`,
-        prefer
-      );
-    } catch {
-      try {
-        // Fallback: load all and filter client-side (safe for small/medium lists)
-        d = await gGet(`/sites/${vpSiteId}/lists/${vpListId}/items?$expand=fields&$top=1000`, prefer);
-        d.value = (d.value||[]).filter(it=>{
-          const f=it.fields||{};
-          return f.FileItemId===item.id || f.Title===item.name;
-        });
-      } catch(e3) {
-        throw e3;
-      }
-    }
-    let items=d.value||[];
-    $id('vp-custom-cnt').textContent=items.length+' Eintr.';
-    c.innerHTML='';
 
-    if (!items.length) {
-      c.innerHTML='<p style="font-size:12px;color:var(--text-dim);">Noch keine Einträge für diese Datei.<br>Füge oben den ersten Versionseintrag hinzu.</p>';
+  try {
+    // Always load all items + filter client-side (avoids indexed-column issues)
+    const prefer = {'Prefer':'HonorNonIndexedQueriesWarningMayFailRandomly'};
+    const d = await gGet(
+      `/sites/${vpSiteId}/lists/${vpListId}/items?$expand=fields&$top=5000&$orderby=createdDateTime desc`,
+      prefer
+    );
+    const all = d.value||[];
+
+    // Filter by: FileItemId (exact) OR Title == filename OR DriveFileId == id
+    const itemName = item.name||'';
+    const itemId   = item.id||'';
+    let filtered = all.filter(it=>{
+      const f=it.fields||{};
+      return (
+        f.FileItemId === itemId ||
+        f.Title      === itemName ||
+        f.Dateiname  === itemName ||
+        f.DriveFileId=== itemId
+      );
+    });
+
+    // If nothing found by ID/name, show all (list might use different column names)
+    if (!filtered.length && all.length > 0) {
+      // show all unfiltered as fallback with a warning
+      filtered = all;
+      const warn=document.createElement('p');
+      warn.style.cssText='font-size:11px;color:var(--amber);margin-bottom:8px;';
+      warn.textContent=`⚠ Zeige alle ${all.length} Listeneinträge (Verknüpfung noch nicht eingerichtet)`;
+      c.innerHTML=''; c.appendChild(warn);
+    } else {
+      c.innerHTML='';
+    }
+
+    $id('vp-custom-cnt').textContent=filtered.length+' Eintr.';
+
+    if (!filtered.length) {
+      c.innerHTML+='<p style="font-size:12px;color:var(--text-dim);">Noch keine Einträge für diese Datei.</p>';
       return;
     }
-    // Enrich with real SP attachments (async, non-blocking render)
-    enrichWithAttachments(items).then(enriched=>{
-      c.innerHTML='';
-      const timeline=document.createElement('div');
-      timeline.className='vp-timeline';
-      enriched.forEach((it,idx)=>timeline.appendChild(mkVpEntryEl(it, idx, enriched.length)));
-      c.appendChild(timeline);
-      $id('vp-custom-cnt').textContent=enriched.length+' Eintr.';
-    });
-    // Show immediately with current data while enriching
+
     const timeline=document.createElement('div');
     timeline.className='vp-timeline';
-    items.forEach((it,idx)=>timeline.appendChild(mkVpEntryEl(it, idx, items.length)));
+    filtered.forEach((it,idx)=>timeline.appendChild(mkVpEntryEl(it, idx, filtered.length)));
     c.appendChild(timeline);
   } catch(e) {
-    c.innerHTML=`<p style="font-size:12px;color:var(--red);">Fehler: ${esc(e.message)}</p>`;
+    c.innerHTML=`<p style="font-size:12px;color:var(--red);">Fehler: ${esc(e.message)}<br>
+      <a href="https://dihag.sharepoint.com/sites/IT/Lists/Versionsprotokoll/AllItems.aspx"
+         target="_blank" style="color:var(--blue);font-size:11px;">↗ Liste in SharePoint prüfen</a></p>`;
   }
 }
 
@@ -1542,10 +1583,168 @@ async function saveVpEdit(el, itemId) {
   } catch(e) { toast('Fehler: '+e.message,'error'); }
 }
 
-// ── Attachment file upload ────────────────────────────────────────────
-let vpAttachItemId=null;
-let vpAttachFile_=null;
+// ══ VP UPLOAD MODAL ═══════════════════════════════════════════════════
+// Uploads file to _Versionen/{filename}/ subfolder via Graph, then creates VP list entry
+let vpmFile = null;
+const VP_FOLDER = '_Versionen';
 
+function openVpUploadModal() {
+  if(!drive||!selected){toast('Bitte zuerst eine Datei auswählen','info');return;}
+  vpmFile=null;
+  $id('vpm-file').value='';
+  $id('vpm-ver').value='';
+  $id('vpm-comment').value='';
+  $id('vpm-status').value='';
+  $id('vpm-fname').style.display='none';
+  $id('vpm-err').style.display='none';
+  $id('vpm-confirm').style.opacity='.45';
+  $id('vpm-confirm').style.pointerEvents='none';
+  $id('vp-modal-sub').textContent=`Datei zu „${selected.name}" → _Versionen/`;
+  $id('vpm-drop').style.borderColor='var(--border2)';
+  $id('vpm-drop').style.background='var(--bg)';
+  $id('vp-modal-ov').style.display='flex';
+}
+function closeVpUploadModal() { $id('vp-modal-ov').style.display='none'; }
+
+function vpmDrop(e) {
+  e.preventDefault();
+  $id('vpm-drop').style.borderColor='var(--border2)';
+  $id('vpm-drop').style.background='var(--bg)';
+  if(e.dataTransfer.files[0]) vpmSetFile(e.dataTransfer.files[0]);
+}
+function vpmSetFile(f) {
+  if(!f) return;
+  vpmFile=f;
+  const el=$id('vpm-fname');
+  el.textContent='✓ '+f.name+' ('+fmtSize(f.size)+')';
+  el.style.display='block';
+  $id('vpm-confirm').style.opacity='1';
+  $id('vpm-confirm').style.pointerEvents='all';
+}
+
+async function doVpUpload() {
+  if(!vpmFile||!drive||!selected||!vpSiteId||!vpListId) {
+    $id('vpm-err').textContent='Bitte eine Datei auswählen und sicherstellen dass die Liste verbunden ist.';
+    $id('vpm-err').style.display='block'; return;
+  }
+  const ver    =($id('vpm-ver').value||'').trim()||'v?';
+  const komm   =($id('vpm-comment').value||'').trim();
+  const status =($id('vpm-status').value||'').trim();
+  $id('vpm-err').style.display='none';
+  closeVpUploadModal();
+  toast(`⬆ Lade „${vpmFile.name}" hoch…`,'info');
+
+  try {
+    // 1. Upload file to _Versionen/{selectedFilename}/{ver}_{filename} in the drive
+    const safeVer = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const destName = `${safeVer}_${vpmFile.name}`;
+    const fid = pathStack[pathStack.length-1]?.id||'root';
+
+    // Build upload path relative to current folder
+    let uploadUrl;
+    if(fid==='root') {
+      uploadUrl=`/drives/${drive.id}/root:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
+    } else {
+      uploadUrl=`/drives/${drive.id}/items/${fid}:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
+    }
+
+    const buf=await vpmFile.arrayBuffer();
+    const uploaded=await gPut(uploadUrl, buf, vpmFile.type||'application/octet-stream');
+
+    // 2. Get download URL & web URL
+    const dlUrl  = uploaded['@microsoft.graph.downloadUrl'] || '';
+    const webUrl = uploaded.webUrl || '';
+
+    // 3. Create VP list entry with all metadata
+    const autor = account?.name||account?.username||'';
+    const fields={
+      Title:       selected.name,
+      FileItemId:  selected.id,
+      DriveFileId: selected.id,
+      DriveId:     drive.id,
+      VersionNr:   ver,
+      Kommentar:   komm,
+      Status_:     status,
+      Datum:       new Date().toISOString(),
+      Autor:       autor,
+      AnhangName:  destName,
+      Dateiname:   destName,
+      AttachmentUrl: dlUrl,
+      DateiUrl:    dlUrl,
+      WebUrl:      webUrl
+    };
+
+    // Try with all fields, fallback to minimal if columns don't exist
+    try {
+      await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields});
+    } catch {
+      // Minimal fallback
+      await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{
+        fields:{
+          Title:      selected.name,
+          FileItemId: selected.id,
+          VersionNr:  ver,
+          Kommentar:  komm
+        }
+      });
+    }
+
+    toast(`„${destName}" hochgeladen & Eintrag „${ver}" angelegt ✓`,'success');
+    vpmFile=null;
+    if(selected) await loadVpEntries(selected);
+
+  } catch(e) {
+    toast('VP-Upload-Fehler: '+e.message,'error');
+  }
+}
+
+// File handler for "📎 Datei" button on existing entry (re-upload/replace)
+async function vpAttachFile(itemId) {
+  const inp=document.createElement('input');
+  inp.type='file'; inp.style.display='none';
+  inp.onchange=async()=>{
+    const f=inp.files[0]; if(!f)return;
+    await doVpFileReplace(itemId, f);
+    document.body.removeChild(inp);
+  };
+  document.body.appendChild(inp);
+  inp.click();
+}
+
+async function doVpFileReplace(itemId, file) {
+  if(!drive||!selected) return;
+  toast(`⬆ Lade „${file.name}" hoch…`,'info');
+  try {
+    const fid=pathStack[pathStack.length-1]?.id||'root';
+    const destName=file.name;
+    let uploadUrl;
+    if(fid==='root') {
+      uploadUrl=`/drives/${drive.id}/root:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
+    } else {
+      uploadUrl=`/drives/${drive.id}/items/${fid}:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
+    }
+    const buf=await file.arrayBuffer();
+    const uploaded=await gPut(uploadUrl, buf, file.type||'application/octet-stream');
+    const dlUrl = uploaded['@microsoft.graph.downloadUrl']||'';
+    const webUrl= uploaded.webUrl||'';
+    // Update list item
+    await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,{
+      AnhangName:    destName, Dateiname:destName,
+      AttachmentUrl: dlUrl, DateiUrl:dlUrl, WebUrl:webUrl
+    }).catch(()=>{});
+    toast(`Datei ersetzt ✓`,'success');
+    if(selected) await loadVpEntries(selected);
+  } catch(e) { toast('Fehler: '+e.message,'error'); }
+}
+
+function vpDownload(url, name) {
+  if(!url){toast('Keine Datei verknüpft','info');return;}
+  const a=document.createElement('a');
+  a.href=url; a.download=name||'download'; a.target='_blank';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// Form-based file drop (for add form drop zone)
 function vpHandleFileDrop(e) {
   e.preventDefault();
   $id('vp-file-drop').classList.remove('on');
@@ -1560,172 +1759,49 @@ function vpSetFile(f) {
   $id('vp-file-drop').textContent='📎 '+f.name;
   $id('vp-file-drop').classList.add('on');
 }
-
-// Upload attachment to a specific list item (via SharePoint REST)
-async function vpAttachFile(itemId) {
-  // Trigger a hidden file picker tied to this item
-  vpAttachItemId=itemId;
-  const inp=document.createElement('input');
-  inp.type='file';
-  inp.style.display='none';
-  inp.onchange=async()=>{
-    const f=inp.files[0];
-    if(!f)return;
-    await doVpAttachUpload(itemId, f);
-    document.body.removeChild(inp);
-  };
-  document.body.appendChild(inp);
-  inp.click();
-}
-
-async function doVpAttachUpload(itemId, file) {
-  if(!vpSiteId||!vpListId||!currentSite?.webUrl) {
-    toast('Site-URL fehlt','error'); return;
-  }
-  toast(`⬆ Lade „${file.name}" hoch…`,'info');
-  try {
-    const tok=await getToken();
-    const buf=await file.arrayBuffer();
-    const fname=encodeURIComponent(file.name);
-    // SharePoint REST: add attachment to list item
-    const r=await fetch(
-      `${currentSite.webUrl}/_api/web/lists('${vpListId}')/items(${itemId})/AttachmentFiles/add(FileName='${fname}')`,
-      {method:'POST',headers:{Authorization:'Bearer '+tok,'Accept':'application/json;odata=verbose'},body:buf}
-    );
-    if(!r.ok) throw new Error('REST '+r.status+': '+await r.text());
-    const data=await r.json();
-    // Store attachment URL in list item fields
-    const attachUrl=data?.d?.ServerRelativeUrl
-      ? currentSite.webUrl.replace(/\/sites\/.*/,'') + data.d.ServerRelativeUrl
-      : '';
-    // Patch the list item to store file metadata
-    await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,{
-      AnhangName: file.name,
-      AttachmentUrl: attachUrl,
-      Dateiname: file.name,
-      DateiUrl: attachUrl
-    }).catch(()=>{/* field may not exist, ignore */});
-    toast(`„${file.name}" angehängt ✓`,'success');
-    if(selected) await loadVpEntries(selected);
-  } catch(e) {
-    toast('Anhang-Fehler: '+e.message,'error');
-  }
-}
-
-function vpDownload(url, name) {
-  if(!url) return;
-  const a=document.createElement('a');
-  a.href=url; a.download=name||'download'; a.target='_blank';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-}
-
-// ── Fetch attachments for a list item ────────────────────────────────
-async function getVpAttachments(itemId) {
-  if(!currentSite?.webUrl||!vpListId) return [];
-  try {
-    const tok=await getToken();
-    const r=await fetch(
-      `${currentSite.webUrl}/_api/web/lists('${vpListId}')/items(${itemId})/AttachmentFiles`,
-      {headers:{Authorization:'Bearer '+tok,Accept:'application/json;odata=verbose'}}
-    );
-    if(!r.ok) return [];
-    const d=await r.json();
-    return (d?.d?.results||[]).map(a=>({
-      name: a.FileName,
-      url: (currentSite.webUrl.replace(/\/sites\/.*/,'')) + a.ServerRelativeUrl
-    }));
-  } catch { return []; }
-}
-
+let vpAttachFile_=null;
+// Simple text-only VP entry (no file) - used by "Eintragen" button in form
 async function addVpEntry() {
   if (!selected) return;
   const ver    =($id('vp-add-ver')?.value||'').trim();
   const komm   =($id('vp-add-comment')?.value||'').trim();
   const status =($id('vp-add-status')?.value||'').trim();
   const errEl  =$id('vp-add-err');
-  if (!ver) { errEl.textContent='Versionsnummer eingeben (z.B. v1.0)'; errEl.style.display='block'; return; }
+  if (!ver) { errEl.textContent='Versionsnummer eingeben'; errEl.style.display='block'; return; }
   errEl.style.display='none';
-  if (!vpSiteId||!vpListId) { toast('Versionsprotokoll-Liste nicht erreichbar','error'); return; }
+  if (!vpSiteId||!vpListId) { toast('Liste nicht erreichbar','error'); return; }
+
+  // If a file is attached via drop zone, use the VP upload modal flow
+  if (vpAttachFile_) { openVpUploadModal(); return; }
 
   const fields={
-    Title:     selected.name,
-    FileItemId:selected.id,
-    DriveId:   drive?.id||'',
-    VersionNr: ver,
-    Kommentar: komm,
-    Status_:   status,
-    Datum:     new Date().toISOString(),
-    Autor:     account?.name||account?.username||''
+    Title:      selected.name,
+    FileItemId: selected.id,
+    DriveFileId:selected.id,
+    DriveId:    drive?.id||'',
+    VersionNr:  ver, Kommentar:komm, Status_:status,
+    Datum:      new Date().toISOString(),
+    Autor:      account?.name||account?.username||''
   };
-
-  let newItemId=null;
   try {
-    const res=await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields});
-    newItemId=res?.id||null;
-  } catch(e) {
-    // Fallback minimal
-    try {
-      const res=await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{
-        fields:{Title:`${selected.name} | ${ver} | ${komm}`}
-      });
-      newItemId=res?.id||null;
-    } catch(e2) { toast('Fehler: '+e2.message,'error'); return; }
+    await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields});
+  } catch {
+    try { await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:{Title:selected.name,FileItemId:selected.id,VersionNr:ver,Kommentar:komm}}); }
+    catch(e2) { toast('Fehler: '+e2.message,'error'); return; }
   }
-
-  // Upload attached file if present
-  if (newItemId && vpAttachFile_) {
-    await doVpAttachUpload(newItemId, vpAttachFile_);
-    vpAttachFile_=null;
-    const fnEl=$id('vp-file-name'); if(fnEl){fnEl.style.display='none';}
-    const fd=$id('vp-file-drop'); if(fd){fd.textContent='📎 Datei anhängen (optional – Klicken oder ablegen)';fd.classList.remove('on');}
-  }
-
-  $id('vp-add-ver').value='';
-  $id('vp-add-comment').value='';
-  $id('vp-add-status').value='';
-  toast(`Versionseintrag "${ver}" hinzugefügt ✓`,'success');
+  $id('vp-add-ver').value='';$id('vp-add-comment').value='';$id('vp-add-status').value='';
+  toast(`Eintrag "${ver}" angelegt ✓`,'success');
   await loadVpEntries(selected);
 }
 
+// deleteVpEntry (Graph only, no REST)
 async function deleteVpEntry(itemId) {
   if (!vpSiteId||!vpListId) return;
   try {
-    // Delete SP attachments first (best-effort)
-    if (currentSite?.webUrl) {
-      const atts = await getVpAttachments(itemId);
-      for (const att of atts) {
-        try {
-          const tok=await getToken();
-          await fetch(`${currentSite.webUrl}/_api/web/GetFileByServerRelativeUrl('${encodeURIComponent(att.url.replace(currentSite.webUrl.replace(/\/sites\/.*/,''),''))}')`,
-            {method:'DELETE',headers:{Authorization:'Bearer '+tok,'IF-MATCH':'*','X-HTTP-Method':'DELETE'}});
-        } catch {}
-      }
-    }
     await gDel(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}`);
     toast('Eintrag gelöscht ✓','success');
     if(selected) await loadVpEntries(selected);
   } catch(e) { toast('Fehler: '+e.message,'error'); }
-}
-
-// ── Load attachments and enrich entries ───────────────────────────────
-// After loading entries, fetch attachments for entries that don't have URL in fields
-async function enrichWithAttachments(items) {
-  if(!currentSite?.webUrl||!vpListId) return items;
-  // Only fetch for items that have no attachment URL stored
-  const needsEnrich=items.filter(it=>!it.fields?.AttachmentUrl&&!it.fields?.DateiUrl);
-  await Promise.all(needsEnrich.map(async it=>{
-    try{
-      const atts=await getVpAttachments(it.id);
-      if(atts.length){
-        it.fields=it.fields||{};
-        it.fields.AnhangName=atts[0].name;
-        it.fields.AttachmentUrl=atts[0].url;
-        it.fields.Dateiname=atts[0].name;
-        it.fields.DateiUrl=atts[0].url;
-      }
-    }catch{}
-  }));
-  return items;
 }
 
 // ══ SP BUILT-IN VERSIONS ═══════════════════════════════════════════════
