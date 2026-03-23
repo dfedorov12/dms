@@ -269,29 +269,86 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .vp-act.del:hover{background:var(--red);border-color:var(--red);color:#fff;}
 .vp-body{flex:1;overflow-y:auto;padding:12px 14px;}
 .vp-sec-label{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;}
-/* Timeline tree for version entries */
-.vp-timeline{position:relative;padding-left:20px;}
-.vp-timeline::before{content:'';position:absolute;left:7px;top:0;bottom:0;width:2px;background:var(--border2);}
+/* ═══ VERSION TIMELINE TREE ══════════════════════════════════════════ */
+.vp-timeline{position:relative;padding-left:26px;padding-bottom:12px;}
+/* vertical trunk line */
+.vp-timeline::before{
+  content:'';position:absolute;left:9px;top:6px;bottom:0;
+  width:2px;background:linear-gradient(to bottom, var(--blue) 0%, var(--border2) 100%);
+}
+/* each entry */
 .vp-entry{
-  position:relative;background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--r-sm);padding:9px 11px;margin-bottom:10px;
+  position:relative;background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r);padding:11px 13px;margin-bottom:12px;
+  transition:box-shadow .15s,border-color .15s;
 }
-/* timeline dot */
+.vp-entry:hover{box-shadow:var(--shadow-sm);border-color:var(--border2);}
+/* connector dot */
 .vp-entry::before{
-  content:'';position:absolute;left:-17px;top:12px;
-  width:10px;height:10px;border-radius:50%;
-  background:var(--blue);border:2px solid var(--surface);
+  content:'';position:absolute;left:-21px;top:14px;
+  width:12px;height:12px;border-radius:50%;
+  background:var(--blue);border:2.5px solid var(--surface);
   box-shadow:0 0 0 2px var(--blue);
+  transition:all .15s;
 }
+/* horizontal connector to dot */
+.vp-entry::after{
+  content:'';position:absolute;left:-9px;top:19px;
+  width:9px;height:1.5px;background:var(--border2);
+}
+.vp-entry.latest{border-color:var(--green);box-shadow:0 0 0 1px rgba(22,163,74,.15);}
 .vp-entry.latest::before{background:var(--green);box-shadow:0 0 0 2px var(--green);}
-.vp-entry-head{display:flex;align-items:center;gap:7px;margin-bottom:4px;}
-.vp-entry-ver{font-size:11px;font-weight:700;background:var(--navy);color:#fff;padding:2px 9px;border-radius:6px;}
+/* faded older entries */
+.vp-entry.faded-1{opacity:.82;}
+.vp-entry.faded-2{opacity:.65;}
+.vp-entry.faded-3{opacity:.5;}
+.vp-entry.faded-3 *{color:var(--text-dim)!important;}
+.vp-entry.faded-3 .vp-entry-ver{background:var(--text-dim)!important;}
+/* entry header */
+.vp-entry-head{display:flex;align-items:center;gap:6px;margin-bottom:5px;flex-wrap:wrap;}
+.vp-entry-ver{font-size:11px;font-weight:700;background:var(--navy);color:#fff;padding:2px 9px;border-radius:6px;flex-shrink:0;}
 .vp-entry.latest .vp-entry-ver{background:var(--green);}
-.vp-entry-status{font-size:9px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--blue-bg);color:var(--blue);}
-.vp-entry-meta{font-size:10px;color:var(--text-dim);line-height:1.7;}
-.vp-entry-comment{font-size:12px;color:var(--text);margin-top:4px;font-style:italic;border-left:2px solid var(--border2);padding-left:7px;}
-.vp-entry-del{background:none;border:none;color:var(--text-dim);font-size:10px;cursor:pointer;padding:2px 6px;border-radius:3px;margin-top:4px;transition:all .15s;}
-.vp-entry-del:hover{color:var(--red);background:var(--red-bg);}
+.vp-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--blue-bg);color:var(--blue);}
+.vp-badge.green{background:var(--green-bg);color:var(--green);}
+.vp-badge.amber{background:var(--amber-bg);color:var(--amber);}
+/* has-attachment indicator */
+.vp-attach-icon{font-size:12px;margin-left:auto;}
+/* meta */
+.vp-entry-meta{font-size:10px;color:var(--text-dim);line-height:1.7;margin-bottom:4px;}
+.vp-entry-comment{font-size:11px;color:var(--text-mid);font-style:italic;
+  border-left:2.5px solid var(--border2);padding-left:8px;margin:5px 0;}
+/* action row */
+.vp-entry-acts{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;}
+.vp-ea{
+  background:var(--bg);border:1px solid var(--border);color:var(--text-muted);
+  padding:4px 9px;border-radius:4px;font-size:10px;font-weight:600;
+  cursor:pointer;transition:all .15s;white-space:nowrap;
+}
+.vp-ea:hover{border-color:var(--navy);color:var(--navy);}
+.vp-ea.open{border-color:rgba(37,99,235,.3);color:var(--blue);background:var(--blue-bg);}
+.vp-ea.open:hover{background:var(--blue);color:#fff;border-color:var(--blue);}
+.vp-ea.dl{border-color:rgba(22,163,74,.3);color:var(--green);background:var(--green-bg);}
+.vp-ea.dl:hover{background:var(--green);color:#fff;border-color:var(--green);}
+.vp-ea.edit:hover{border-color:var(--amber);color:var(--amber);background:var(--amber-bg);}
+.vp-ea.del:hover{background:var(--red);border-color:var(--red);color:#fff;}
+/* inline edit form */
+.vp-edit-form{background:var(--bg);border-radius:var(--r-sm);padding:9px;margin-top:7px;display:grid;gap:5px;}
+.vp-edit-in{
+  width:100%;padding:5px 8px;border:1.5px solid var(--border2);border-radius:4px;
+  font-family:inherit;font-size:11px;outline:none;transition:border-color .2s;background:#fff;
+}
+.vp-edit-in:focus{border-color:var(--red);}
+.vp-edit-acts{display:flex;gap:6px;margin-top:5px;}
+.vp-edit-save{background:var(--navy);border:none;color:#fff;padding:5px 13px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;transition:background .15s;}
+.vp-edit-save:hover{background:var(--red);}
+.vp-edit-cancel{background:var(--bg);border:1px solid var(--border);color:var(--text-muted);padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;}
+/* file attach area in add form */
+.vp-file-drop{
+  border:1.5px dashed var(--border2);border-radius:var(--r-sm);padding:8px 10px;
+  text-align:center;cursor:pointer;transition:all .2s;background:var(--surface);
+  font-size:11px;color:var(--text-dim);
+}
+.vp-file-drop:hover,.vp-file-drop.on{border-color:var(--red);color:var(--red);background:var(--red-bg);}
 /* Drive pin button */
 .drive-pin-btn{
   background:none;border:none;font-size:12px;opacity:0;transition:opacity .15s;
@@ -299,9 +356,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 }
 .drive-item:hover .drive-pin-btn{opacity:.6;}
 .drive-item.pinned-drive .drive-pin-btn{opacity:.9;}
-/* Pinned drives section */
 .pinned-drives-sec{padding:10px 13px;border-bottom:1px solid var(--border);}
-
 /* SP version items */
 .ver-item{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:8px;}
 .ver-item.current{border-color:var(--green);background:rgba(22,163,74,.04);}
@@ -496,10 +551,20 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
         <input id="vp-add-ver" type="text" placeholder="v1.0" style="padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
         <input id="vp-add-comment" type="text" placeholder="Was wurde geändert?" style="padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'" onkeydown="if(event.key==='Enter')addVpEntry()"/>
       </div>
-      <div style="display:flex;gap:5px;">
+      <div style="display:flex;gap:5px;margin-bottom:5px;">
         <input id="vp-add-status" type="text" placeholder="Status (Entwurf, Final…)" style="flex:1;padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'"/>
         <button onclick="addVpEntry()" style="background:var(--red);border:none;color:#fff;padding:5px 13px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">Eintragen</button>
       </div>
+      <!-- File attach drop zone -->
+      <div class="vp-file-drop" id="vp-file-drop"
+           onclick="$id('vp-file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('on')"
+           ondragleave="this.classList.remove('on')"
+           ondrop="vpHandleFileDrop(event)">
+        📎 Datei anhängen (optional – Klicken oder ablegen)
+      </div>
+      <input type="file" id="vp-file-input" style="display:none;" onchange="vpSetFile(this.files[0])"/>
+      <div id="vp-file-name" style="font-size:10px;color:var(--green);margin-top:4px;display:none;"></div>
       <div id="vp-add-err" style="font-size:11px;color:var(--red);margin-top:4px;display:none;"></div>
     </div>
     <div class="vp-body" style="flex:1;overflow-y:auto;">
@@ -507,7 +572,6 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
         <span>Verlauf · Versionsprotokoll</span>
         <span id="vp-custom-cnt" style="color:var(--amber);font-size:11px;"></span>
       </div>
-      <!-- Timeline tree -->
       <div id="vp-custom-list"><div class="spinner sm"></div></div>
     </div>
   </div>
@@ -1363,7 +1427,7 @@ async function loadVpEntries(item) {
         throw e3;
       }
     }
-    const items=d.value||[];
+    let items=d.value||[];
     $id('vp-custom-cnt').textContent=items.length+' Eintr.';
     c.innerHTML='';
 
@@ -1371,41 +1435,206 @@ async function loadVpEntries(item) {
       c.innerHTML='<p style="font-size:12px;color:var(--text-dim);">Noch keine Einträge für diese Datei.<br>Füge oben den ersten Versionseintrag hinzu.</p>';
       return;
     }
-    // Render as timeline tree
+    // Enrich with real SP attachments (async, non-blocking render)
+    enrichWithAttachments(items).then(enriched=>{
+      c.innerHTML='';
+      const timeline=document.createElement('div');
+      timeline.className='vp-timeline';
+      enriched.forEach((it,idx)=>timeline.appendChild(mkVpEntryEl(it, idx, enriched.length)));
+      c.appendChild(timeline);
+      $id('vp-custom-cnt').textContent=enriched.length+' Eintr.';
+    });
+    // Show immediately with current data while enriching
     const timeline=document.createElement('div');
     timeline.className='vp-timeline';
-    items.forEach((it,idx)=>timeline.appendChild(mkVpEntryEl(it,idx===0)));
+    items.forEach((it,idx)=>timeline.appendChild(mkVpEntryEl(it, idx, items.length)));
     c.appendChild(timeline);
   } catch(e) {
     c.innerHTML=`<p style="font-size:12px;color:var(--red);">Fehler: ${esc(e.message)}</p>`;
   }
 }
 
-function mkVpEntryEl(it, isLatest=false) {
+function mkVpEntryEl(it, idx=0, total=1) {
   const f=it.fields||{};
+  const isLatest=(idx===0);
+  // Calculate fade class
+  const fadeClass = idx===0?'':idx===1?'faded-1':idx===2?'faded-2':'faded-3';
+
   const el=document.createElement('div');
-  el.className='vp-entry'+(isLatest?' latest':'');
+  el.className='vp-entry'+(isLatest?' latest':'')+(fadeClass?' '+fadeClass:'');
+  el.dataset.itemId=it.id;
+
   const dt=f.Datum||f.Created||it.createdDateTime||'';
   const dtFmt=dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
   const autor=f.Autor||f.Author||'—';
   const ver=f.VersionNr||f.Version||'—';
   const komm=f.Kommentar||f.Description||'';
   const status=f.Status_||f.Status||f.Kategorie||'';
-  const driveNote=f.DriveId&&f.DriveId!==drive?.id?'<span style="font-size:9px;color:var(--amber);"> ⚠ anderes Laufwerk</span>':'';
+  const hasFile=!!(f.AnhangName||f.AttachmentUrl||f.Dateiname);
+  const attachName=f.AnhangName||f.Dateiname||'';
+  const attachUrl=f.AttachmentUrl||f.DateiUrl||'';
+
   el.innerHTML=`
     <div class="vp-entry-head">
       <span class="vp-entry-ver">${esc(ver)}</span>
-      ${isLatest?'<span class="vp-entry-status" style="background:var(--green-bg);color:var(--green);">✓ Aktuell</span>':''}
-      ${status?`<span class="vp-entry-status">${esc(status)}</span>`:''}
-      ${driveNote}
+      ${isLatest?'<span class="vp-badge green">✓ Aktuell</span>':''}
+      ${status?`<span class="vp-badge">${esc(status)}</span>`:''}
+      ${hasFile?`<span class="vp-attach-icon" title="${esc(attachName)}">📎</span>`:''}
     </div>
-    <div class="vp-entry-meta">📅 ${dtFmt}<br>👤 ${esc(typeof autor==='object'?autor.LookupValue||'—':autor)}</div>
-    ${komm?`<div class="vp-entry-comment">"${esc(komm)}"</div>`:''}
-    <button class="vp-entry-del" data-item-id="${it.id}">🗑 Löschen</button>`;
-  el.querySelector('.vp-entry-del').addEventListener('click', e=>{
-    if(confirm('Versionseintrag wirklich löschen?')) deleteVpEntry(e.currentTarget.dataset.itemId);
+    <div class="vp-entry-meta">
+      📅 ${dtFmt} &nbsp;·&nbsp; 👤 ${esc(typeof autor==='object'?autor.LookupValue||'—':autor)}
+    </div>
+    ${komm?`<div class="vp-entry-comment">${esc(komm)}</div>`:''}
+    <div class="vp-entry-acts">
+      ${hasFile&&attachUrl?`<button class="vp-ea open" data-url="${esc(attachUrl)}">↗ Öffnen</button>`:''}
+      ${hasFile&&attachUrl?`<button class="vp-ea dl"   data-url="${esc(attachUrl)}" data-name="${esc(attachName)}">⬇ Download</button>`:''}
+      <button class="vp-ea edit">✎ Bearbeiten</button>
+      <button class="vp-ea upload-att">📎 Datei</button>
+      <button class="vp-ea del">🗑</button>
+    </div>
+    <!-- inline edit form (hidden by default) -->
+    <div class="vp-edit-form" style="display:none;">
+      <input class="vp-edit-in" data-field="VersionNr" placeholder="Version" value="${esc(ver)}"/>
+      <input class="vp-edit-in" data-field="Kommentar" placeholder="Kommentar" value="${esc(komm)}"/>
+      <input class="vp-edit-in" data-field="Status_"   placeholder="Status"    value="${esc(status)}"/>
+      <div class="vp-edit-acts">
+        <button class="vp-edit-save">✓ Speichern</button>
+        <button class="vp-edit-cancel">Abbrechen</button>
+      </div>
+    </div>`;
+
+  // Wire actions
+  el.querySelector('.vp-ea.edit').addEventListener('click', ()=>toggleVpEdit(el));
+  el.querySelector('.vp-ea.del').addEventListener('click', ()=>{
+    if(confirm(`Versionseintrag "${ver}" wirklich löschen?`)) deleteVpEntry(it.id);
   });
+  el.querySelector('.vp-ea.upload-att').addEventListener('click', ()=>vpAttachFile(it.id));
+
+  const openBtn=el.querySelector('.vp-ea.open');
+  if(openBtn) openBtn.addEventListener('click', e=>window.open(e.currentTarget.dataset.url,'_blank'));
+
+  const dlBtn=el.querySelector('.vp-ea.dl');
+  if(dlBtn) dlBtn.addEventListener('click', e=>vpDownload(e.currentTarget.dataset.url, e.currentTarget.dataset.name));
+
+  el.querySelector('.vp-edit-save').addEventListener('click', ()=>saveVpEdit(el, it.id));
+  el.querySelector('.vp-edit-cancel').addEventListener('click', ()=>toggleVpEdit(el, false));
+
   return el;
+}
+
+function toggleVpEdit(el, show=null) {
+  const form=el.querySelector('.vp-edit-form');
+  const show2=(show!==null)?show:form.style.display==='none';
+  form.style.display=show2?'grid':'none';
+  if(show2) el.querySelector('.vp-edit-in').focus();
+}
+
+async function saveVpEdit(el, itemId) {
+  if(!vpSiteId||!vpListId)return;
+  const inputs=el.querySelectorAll('.vp-edit-in');
+  const fields={};
+  inputs.forEach(inp=>{ if(inp.dataset.field) fields[inp.dataset.field]=inp.value.trim(); });
+  try {
+    await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, fields);
+    toast('Eintrag aktualisiert ✓','success');
+    toggleVpEdit(el, false);
+    if(selected) await loadVpEntries(selected);
+  } catch(e) { toast('Fehler: '+e.message,'error'); }
+}
+
+// ── Attachment file upload ────────────────────────────────────────────
+let vpAttachItemId=null;
+let vpAttachFile_=null;
+
+function vpHandleFileDrop(e) {
+  e.preventDefault();
+  $id('vp-file-drop').classList.remove('on');
+  if(e.dataTransfer.files[0]) vpSetFile(e.dataTransfer.files[0]);
+}
+function vpSetFile(f) {
+  if(!f)return;
+  vpAttachFile_=f;
+  const el=$id('vp-file-name');
+  el.textContent='📎 '+f.name+' ('+fmtSize(f.size)+')';
+  el.style.display='block';
+  $id('vp-file-drop').textContent='📎 '+f.name;
+  $id('vp-file-drop').classList.add('on');
+}
+
+// Upload attachment to a specific list item (via SharePoint REST)
+async function vpAttachFile(itemId) {
+  // Trigger a hidden file picker tied to this item
+  vpAttachItemId=itemId;
+  const inp=document.createElement('input');
+  inp.type='file';
+  inp.style.display='none';
+  inp.onchange=async()=>{
+    const f=inp.files[0];
+    if(!f)return;
+    await doVpAttachUpload(itemId, f);
+    document.body.removeChild(inp);
+  };
+  document.body.appendChild(inp);
+  inp.click();
+}
+
+async function doVpAttachUpload(itemId, file) {
+  if(!vpSiteId||!vpListId||!currentSite?.webUrl) {
+    toast('Site-URL fehlt','error'); return;
+  }
+  toast(`⬆ Lade „${file.name}" hoch…`,'info');
+  try {
+    const tok=await getToken();
+    const buf=await file.arrayBuffer();
+    const fname=encodeURIComponent(file.name);
+    // SharePoint REST: add attachment to list item
+    const r=await fetch(
+      `${currentSite.webUrl}/_api/web/lists('${vpListId}')/items(${itemId})/AttachmentFiles/add(FileName='${fname}')`,
+      {method:'POST',headers:{Authorization:'Bearer '+tok,'Accept':'application/json;odata=verbose'},body:buf}
+    );
+    if(!r.ok) throw new Error('REST '+r.status+': '+await r.text());
+    const data=await r.json();
+    // Store attachment URL in list item fields
+    const attachUrl=data?.d?.ServerRelativeUrl
+      ? currentSite.webUrl.replace(/\/sites\/.*/,'') + data.d.ServerRelativeUrl
+      : '';
+    // Patch the list item to store file metadata
+    await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,{
+      AnhangName: file.name,
+      AttachmentUrl: attachUrl,
+      Dateiname: file.name,
+      DateiUrl: attachUrl
+    }).catch(()=>{/* field may not exist, ignore */});
+    toast(`„${file.name}" angehängt ✓`,'success');
+    if(selected) await loadVpEntries(selected);
+  } catch(e) {
+    toast('Anhang-Fehler: '+e.message,'error');
+  }
+}
+
+function vpDownload(url, name) {
+  if(!url) return;
+  const a=document.createElement('a');
+  a.href=url; a.download=name||'download'; a.target='_blank';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ── Fetch attachments for a list item ────────────────────────────────
+async function getVpAttachments(itemId) {
+  if(!currentSite?.webUrl||!vpListId) return [];
+  try {
+    const tok=await getToken();
+    const r=await fetch(
+      `${currentSite.webUrl}/_api/web/lists('${vpListId}')/items(${itemId})/AttachmentFiles`,
+      {headers:{Authorization:'Bearer '+tok,Accept:'application/json;odata=verbose'}}
+    );
+    if(!r.ok) return [];
+    const d=await r.json();
+    return (d?.d?.results||[]).map(a=>({
+      name: a.FileName,
+      url: (currentSite.webUrl.replace(/\/sites\/.*/,'')) + a.ServerRelativeUrl
+    }));
+  } catch { return []; }
 }
 
 async function addVpEntry() {
@@ -1417,6 +1646,7 @@ async function addVpEntry() {
   if (!ver) { errEl.textContent='Versionsnummer eingeben (z.B. v1.0)'; errEl.style.display='block'; return; }
   errEl.style.display='none';
   if (!vpSiteId||!vpListId) { toast('Versionsprotokoll-Liste nicht erreichbar','error'); return; }
+
   const fields={
     Title:     selected.name,
     FileItemId:selected.id,
@@ -1427,31 +1657,75 @@ async function addVpEntry() {
     Datum:     new Date().toISOString(),
     Autor:     account?.name||account?.username||''
   };
+
+  let newItemId=null;
   try {
-    await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields});
-    $id('vp-add-ver').value=''; $id('vp-add-comment').value=''; $id('vp-add-status').value='';
-    toast(`Versionseintrag "${ver}" hinzugefügt ✓`,'success');
-    await loadVpEntries(selected);
+    const res=await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields});
+    newItemId=res?.id||null;
   } catch(e) {
-    // Fallback: minimal payload (only Title, which always exists)
+    // Fallback minimal
     try {
-      await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{
+      const res=await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{
         fields:{Title:`${selected.name} | ${ver} | ${komm}`}
       });
-      $id('vp-add-ver').value=''; $id('vp-add-comment').value=''; $id('vp-add-status').value='';
-      toast('Eintrag gespeichert (Basismodus) ✓','success');
-      await loadVpEntries(selected);
-    } catch(e2) { toast('Fehler: '+e2.message,'error'); }
+      newItemId=res?.id||null;
+    } catch(e2) { toast('Fehler: '+e2.message,'error'); return; }
   }
+
+  // Upload attached file if present
+  if (newItemId && vpAttachFile_) {
+    await doVpAttachUpload(newItemId, vpAttachFile_);
+    vpAttachFile_=null;
+    const fnEl=$id('vp-file-name'); if(fnEl){fnEl.style.display='none';}
+    const fd=$id('vp-file-drop'); if(fd){fd.textContent='📎 Datei anhängen (optional – Klicken oder ablegen)';fd.classList.remove('on');}
+  }
+
+  $id('vp-add-ver').value='';
+  $id('vp-add-comment').value='';
+  $id('vp-add-status').value='';
+  toast(`Versionseintrag "${ver}" hinzugefügt ✓`,'success');
+  await loadVpEntries(selected);
 }
 
 async function deleteVpEntry(itemId) {
   if (!vpSiteId||!vpListId) return;
   try {
+    // Delete SP attachments first (best-effort)
+    if (currentSite?.webUrl) {
+      const atts = await getVpAttachments(itemId);
+      for (const att of atts) {
+        try {
+          const tok=await getToken();
+          await fetch(`${currentSite.webUrl}/_api/web/GetFileByServerRelativeUrl('${encodeURIComponent(att.url.replace(currentSite.webUrl.replace(/\/sites\/.*/,''),''))}')`,
+            {method:'DELETE',headers:{Authorization:'Bearer '+tok,'IF-MATCH':'*','X-HTTP-Method':'DELETE'}});
+        } catch {}
+      }
+    }
     await gDel(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}`);
     toast('Eintrag gelöscht ✓','success');
     if(selected) await loadVpEntries(selected);
   } catch(e) { toast('Fehler: '+e.message,'error'); }
+}
+
+// ── Load attachments and enrich entries ───────────────────────────────
+// After loading entries, fetch attachments for entries that don't have URL in fields
+async function enrichWithAttachments(items) {
+  if(!currentSite?.webUrl||!vpListId) return items;
+  // Only fetch for items that have no attachment URL stored
+  const needsEnrich=items.filter(it=>!it.fields?.AttachmentUrl&&!it.fields?.DateiUrl);
+  await Promise.all(needsEnrich.map(async it=>{
+    try{
+      const atts=await getVpAttachments(it.id);
+      if(atts.length){
+        it.fields=it.fields||{};
+        it.fields.AnhangName=atts[0].name;
+        it.fields.AttachmentUrl=atts[0].url;
+        it.fields.Dateiname=atts[0].name;
+        it.fields.DateiUrl=atts[0].url;
+      }
+    }catch{}
+  }));
+  return items;
 }
 
 // ══ SP BUILT-IN VERSIONS ═══════════════════════════════════════════════
