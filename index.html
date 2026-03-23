@@ -984,147 +984,101 @@ function renderPinnedDrives() {
 }
 
 // ══ MSAL ══════════════════════════════════════════════════════════════
-// Wrap a promise with a timeout so MSAL can't hang forever
-function withTimeout(promise, ms, label='') {
-  return new Promise((res, rej) => {
-    const t = setTimeout(()=>rej(new Error(`Timeout (${label||ms}ms)`)), ms);
-    promise.then(v=>{ clearTimeout(t); res(v); }, e=>{ clearTimeout(t); rej(e); });
-  });
-}
-
 async function initApp() {
   bootMsg('Initialisiere…');
   bootSpinner(true);
 
-  // Show login button after 6 s regardless – catches any hang
-  const hardFallback = setTimeout(()=>{
-    if (!account) {
-      bootSpinner(false);
-      bootMsg('Bitte anmelden.');
-      showBootBtn();
-      $id('boot-hint').style.display='block';
-    }
-  }, 6000);
+  // Clear any stale MSAL interaction_in_progress state that can cause loops
+  try {
+    Object.keys(sessionStorage)
+      .filter(k => k.includes('msal') || k.includes('login') || k.includes('interaction'))
+      .forEach(k => sessionStorage.removeItem(k));
+  } catch {}
 
   const cfg = {
     auth: {
       clientId:    CLIENT_ID,
       authority:  `https://login.microsoftonline.com/${TENANT_ID}`,
-      redirectUri: location.origin + location.pathname
+      redirectUri: location.href.split('?')[0].split('#')[0]  // exact current URL, no params
     },
-    cache: { cacheLocation:'localStorage', storeAuthStateInCookie:true }
+    cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
 
   try {
     msalApp = new msal.PublicClientApplication(cfg);
-
-    // initialize() can hang → 3 s timeout
-    await withTimeout(msalApp.initialize(), 3000, 'initialize');
-
-    // Handle redirect result (null if not a redirect flow)
-    const redir = await msalApp.handleRedirectPromise().catch(()=>null);
-    if (redir?.account) account = redir.account;
-
-    // Check for existing cached account
-    if (!account) {
-      const all = msalApp.getAllAccounts();
-      if (all.length) account = all[0];
-    }
-
-    // ── Auto-login: try silent SSO if we have an account hint ──────────
-    if (account) {
-      bootMsg('Angemeldet als ' + (account.name||account.username||'…'));
-      clearTimeout(hardFallback);
-      await startApp();
-      return;
-    }
-
-    // No cached account → try silent SSO with a login-hint (tenant-wide)
-    bootMsg('Versuche stille Anmeldung…');
-    try {
-      const silent = await withTimeout(
-        msalApp.ssoSilent({ scopes: SCOPES, loginHint: undefined }),
-        4000, 'ssoSilent'
-      );
-      if (silent?.account) {
-        account = silent.account;
-        clearTimeout(hardFallback);
-        bootMsg('Automatisch angemeldet ✓');
-        await startApp();
-        return;
-      }
-    } catch {
-      // Silent SSO not possible (no session / consent required) → show button
-    }
-
-    // No session found → prompt user
-    clearTimeout(hardFallback);
-    bootSpinner(false);
-    bootMsg('Bitte mit Microsoft 365 anmelden.');
-    showBootBtn();
-    $id('boot-hint').style.display='block';
-
+    await msalApp.initialize();
   } catch(e) {
-    clearTimeout(hardFallback);
+    // initialize() failed (MSAL script issue, bad config, etc.)
     bootSpinner(false);
-    const m = e.message||String(e);
-    if (m.includes('Timeout')) {
-      bootErr('MSAL lädt nicht (Timeout).<br>Prüfe ob die Seite korrekt konfiguriert ist oder lade neu.');
-    } else if (m.includes('redirect') || m.includes('hash') || m.includes('interaction_in_progress')) {
-      bootErr(`Redirect-URI <code>${location.origin+location.pathname}</code> muss als <strong>SPA</strong> in Azure eingetragen sein.`);
-    } else {
-      bootErr(`Fehler: <code>${esc(m)}</code>`);
-    }
+    bootErr(`Initialisierungsfehler: <code>${esc(e.message||e)}</code><br>Redirect-URI: <code>${cfg.auth.redirectUri}</code> muss als SPA in Azure eingetragen sein.`);
     showBootBtn();
-    $id('boot-hint').style.display='block';
+    $id('boot-hint').style.display = 'block';
+    return;
   }
+
+  // Handle redirect flow (after loginRedirect) – usually null
+  try { await msalApp.handleRedirectPromise(); } catch {}
+
+  // Check for already-cached account (from previous login)
+  const accounts = msalApp.getAllAccounts();
+  if (accounts.length > 0) {
+    account = accounts[0];
+    bootMsg('Angemeldet als ' + (account.name || account.username || '…'));
+    try {
+      await startApp();
+    } catch(e) {
+      bootSpinner(false);
+      bootErr('Startfehler: ' + esc(e.message));
+      showBootBtn();
+    }
+    return;
+  }
+
+  // No cached account → show login button right away, no silent attempt
+  bootSpinner(false);
+  bootMsg('Bitte mit Microsoft 365 anmelden.');
+  showBootBtn();
+  $id('boot-hint').style.display = 'block';
 }
 
 async function loginUser() {
   hideBootBtn();
-  $id('boot-hint').style.display='none';
+  $id('boot-hint').style.display = 'none';
+  $id('boot-err').style.display  = 'none';
   bootSpinner(true);
-  bootMsg('Anmeldung läuft… Popup erlauben!');
+  bootMsg('Anmeldungs-Popup öffnet sich…');
   try {
-    // First try ssoSilent quickly in case there's a session in another tab
-    try {
-      const silent = await withTimeout(
-        msalApp.ssoSilent({ scopes: SCOPES }),
-        2500, 'ssoSilent2'
-      );
-      if (silent?.account) {
-        account = silent.account;
-        await startApp();
-        return;
-      }
-    } catch { /* fall through to popup */ }
-
-    // Popup login
-    const r = await withTimeout(
-      msalApp.loginPopup({ scopes: SCOPES, prompt: 'select_account' }),
-      120000, 'loginPopup'
-    );
-    account = r.account;
+    const result = await msalApp.loginPopup({
+      scopes:  SCOPES,
+      prompt:  'select_account'
+    });
+    account = result.account;
+    bootMsg('Angemeldet ✓ Lade App…');
     await startApp();
   } catch(e) {
-    const msg = e.message||String(e);
+    bootSpinner(false);
+    const msg = e.message || String(e);
     if (msg.includes('popup') || msg.includes('Popup')) {
-      bootErr('Popup blockiert.<br><strong>Popup-Blocker für diese Seite deaktivieren</strong> und dann nochmals klicken.');
-    } else if (msg.includes('cancelled') || msg.includes('closed') || msg.includes('access_denied')) {
-      bootErr('Anmeldung abgebrochen oder verweigert.');
-    } else if (msg.includes('Timeout')) {
-      bootErr('Anmeldung dauert zu lange. Popup-Fenster prüfen.');
+      bootErr('Popup wurde blockiert.<br><strong>Popup-Blocker für diese Seite deaktivieren</strong>, dann nochmals klicken.');
+    } else if (msg.includes('cancelled') || msg.includes('closed') || msg.includes('denied')) {
+      bootErr('Anmeldung abgebrochen.');
     } else {
-      bootErr('Anmeldung fehlgeschlagen: <code>'+esc(msg)+'</code>');
+      bootErr('Fehler: <code>' + esc(msg) + '</code>');
     }
     showBootBtn();
-    bootSpinner(false);
-    $id('boot-hint').style.display='block';
+    $id('boot-hint').style.display = 'block';
   }
 }
+
 async function getToken() {
-  try { return (await msalApp.acquireTokenSilent({scopes:SCOPES,account})).accessToken; }
-  catch { return (await msalApp.acquireTokenPopup({scopes:SCOPES})).accessToken; }
+  if (!account) throw new Error('Nicht angemeldet');
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: SCOPES, account });
+    return r.accessToken;
+  } catch {
+    const r = await msalApp.acquireTokenPopup({ scopes: SCOPES, account });
+    return r.accessToken;
+  }
 }
 
 // ══ GRAPH HELPERS ══════════════════════════════════════════════════════
