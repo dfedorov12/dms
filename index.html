@@ -233,8 +233,8 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .tc-badge{font-size:9px;padding:1px 6px;border-radius:5px;font-weight:600;}
 .tc-badge.folder-b{background:rgba(245,158,11,.12);color:#b45309;}
 .tc-badge.file-b{background:var(--red-bg);color:var(--red);}
-.tc-act-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:3px 9px;border-radius:4px;font-size:10px;font-weight:600;transition:all .15s;flex-shrink:0;margin-left:4px;}
-.tc-act-btn:hover{border-color:var(--red-border);color:var(--red);}
+.tc-act-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:4px;font-size:14px;font-weight:600;transition:all .15s;flex-shrink:0;margin-left:auto;align-self:center;}
+.tc-act-btn:hover{border-color:var(--navy);color:var(--navy);background:rgba(10,31,60,.06);}
 /* indent children */
 .tree-children{padding-left:28px;display:none;border-left:0;}
 .tree-node.expanded>.tree-children{display:block;}
@@ -847,10 +847,12 @@ let pinnedFolders  = loadPinnedFolders(); // [{ id, name, driveId, driveName, si
 const driveState   = {};
 
 // Version-log list state (resolved at startup)
-let vpSiteId   = null;
-let vpListId   = null;
-let vpColumns  = {};  // internal name → display name
-let vpColByDisplay = {}; // display name (lc) → internal name
+let vpSiteId      = null;
+let vpSiteWebUrl  = '';   // e.g. https://dihag.sharepoint.com/sites/IT
+let vpListId      = null;
+let vpListName    = '';   // display name for attachment URL path
+let vpColumns     = {};   // internal name → display name
+let vpColByDisplay= {};   // display name (lc) → internal name
 
 // Safe Map: siteKey (idx) → full site object (avoids JSON in onclick attr)
 const siteMap = {};
@@ -1141,7 +1143,8 @@ async function startApp() {
 async function initVpList() {
   try {
     const site = await gGet(`/sites/${VP_SITE_URL}`);
-    vpSiteId = site.id;
+    vpSiteId      = site.id;
+    vpSiteWebUrl  = site.webUrl || 'https://dihag.sharepoint.com/sites/IT';
     const r1 = await gGet(`/sites/${vpSiteId}/lists?$select=id,name,displayName&$top=50`);
     const listData = (r1.value||[]).find(l =>
       l.displayName===VP_LIST_NAME || l.name===VP_LIST_NAME ||
@@ -1149,16 +1152,16 @@ async function initVpList() {
       l.name.toLowerCase().includes('version')
     );
     if (!listData) throw new Error(`Liste "${VP_LIST_NAME}" nicht gefunden`);
-    vpListId = listData.id;
+    vpListId   = listData.id;
+    vpListName = listData.displayName || listData.name || VP_LIST_NAME;
     // Fetch ALL columns — build name↔displayName maps
     const cols = await gGet(`/sites/${vpSiteId}/lists/${vpListId}/columns?$top=200`);
-    vpColumns = {}; // internal name → display name
-    vpColByDisplay = {}; // display name (lowercase) → internal name
+    vpColumns = {}; vpColByDisplay = {};
     (cols.value||[]).forEach(c=>{
       vpColumns[c.name] = c.displayName;
       vpColByDisplay[(c.displayName||'').toLowerCase().trim()] = c.name;
     });
-    console.log('VP list ready:', vpListId);
+    console.log('VP list ready. siteWebUrl:', vpSiteWebUrl, 'listName:', vpListName);
     console.log('Columns:', Object.entries(vpColumns).map(([k,v])=>`${k}=${v}`).join(', '));
   } catch(e) {
     console.warn('VP list init failed:', e.message);
@@ -1829,7 +1832,7 @@ async function loadVpEntries(item) {
   try {
     const prefer = {'Prefer':'HonorNonIndexedQueriesWarningMayFailRandomly'};
     const d = await gGet(
-      `/sites/${vpSiteId}/lists/${vpListId}/items?$expand=fields&$top=5000&$orderby=createdDateTime desc`,
+      `/sites/${vpSiteId}/lists/${vpListId}/items?$expand=fields,AttachmentFiles&$top=5000&$orderby=createdDateTime desc`,
       prefer
     );
     const all = d.value||[];
@@ -1960,26 +1963,141 @@ async function saveVpEdit(el, itemId) {
 }
 
 // ══ VP UPLOAD MODAL ═══════════════════════════════════════════════════
-// Uploads file to _Versionen/{filename}/ subfolder via Graph, then creates VP list entry
+// Upload = attach file directly to the SP list item (no folder in document library!)
 let vpmFile = null;
-const VP_FOLDER = '_Versionen';
+
+async function doVpUpload() {
+  if(!vpmFile||!selected) {
+    $id('vpm-err').textContent='Bitte eine Datei auswählen.';
+    $id('vpm-err').style.display='block'; return;
+  }
+  if(!vpSiteId||!vpListId) {
+    $id('vpm-err').textContent='Liste nicht verbunden – bitte kurz warten.';
+    $id('vpm-err').style.display='block';
+    initVpList().then(()=>{ if(vpListId) $id('vpm-err').textContent='Bereit – nochmals klicken.'; });
+    return;
+  }
+  const ver    = ($id('vpm-ver').value||'').trim() || 'v1.0';
+  const komm   = ($id('vpm-comment').value||'').trim();
+  const status = ($id('vpm-status').value||'').trim();
+  $id('vpm-err').style.display='none';
+  closeVpUploadModal();
+  toast(`📋 Erstelle Versionseintrag für „${vpmFile.name}"…`,'info');
+
+  try {
+    // ── Step 1: Get parent file's permanent SP webUrl ──────────────────
+    let parentWebUrl = selected.webUrl || '';
+    const parentItemId = selected.id || '';
+    if (!parentWebUrl && drive && parentItemId) {
+      try {
+        const fresh = await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`);
+        parentWebUrl = fresh.webUrl || '';
+      } catch(e) { console.warn('[VP] could not fetch parent webUrl:', e.message); }
+    }
+    console.log('[VP] parent webUrl:', parentWebUrl);
+
+    // ── Step 2: Build list item fields ────────────────────────────────
+    const linkColName   = vpField('Dateilink');
+    const fileItemIdCol = vpField('FileItemId');
+    const fields = { Title: selected.name };
+    const meta = {
+      VersionNr: ver,
+      Kommentar: komm,
+      Status_:   status,
+      Datum:     new Date().toISOString(),
+      Autor:     account?.name || account?.username || '',
+      DateiName: vpmFile.name,
+      FileItemId:parentItemId,
+    };
+    for (const [lg, val] of Object.entries(meta)) {
+      if (!val) continue;
+      const col = vpField(lg);
+      if (col) fields[col] = val;
+    }
+    // Datei-Link = permanent SP URL of the parent file (join key + direct link)
+    if (linkColName && parentWebUrl) fields[linkColName] = parentWebUrl;
+    if (fileItemIdCol) fields[fileItemIdCol] = parentItemId;
+
+    // ── Step 3: Create SP list item ───────────────────────────────────
+    let newItem;
+    for (const body of [
+      {fields},
+      {fields: {...fields, ...(linkColName&&parentWebUrl?{[linkColName]:{Url:parentWebUrl,Description:selected.name}}:{})}},
+      {fields: {Title:selected.name, ...(vpField('VersionNr')?{[vpField('VersionNr')]:ver}:{})}},
+      {fields: {Title:selected.name}},
+    ]) {
+      try { newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, body); break; }
+      catch(e) { console.warn('[VP] POST attempt failed:', e.message); }
+    }
+    if (!newItem) throw new Error('Liste konnte nicht beschrieben werden.');
+    const numericId = newItem.id; // SP uses numeric string IDs for attachments
+    console.log('[VP] list item created, id:', numericId);
+
+    // ── Step 4: Attach file to the list item via SP REST ─────────────
+    //  URL: {siteWebUrl}/_api/web/lists(guid'{listId}')/items({id})/AttachmentFiles/add(FileName='{name}')
+    const token      = await getToken();
+    const attachName = vpmFile.name;
+    const buf        = await vpmFile.arrayBuffer();
+    const spRestUrl  = `${vpSiteWebUrl}/_api/web/lists(guid'${vpListId}')/items(${numericId})/AttachmentFiles/add(FileName='${encodeURIComponent(attachName)}')`;
+
+    const attachResp = await fetch(spRestUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type':  'application/octet-stream',
+        'Accept':        'application/json;odata=verbose',
+      },
+      body: buf,
+    });
+
+    if (!attachResp.ok) {
+      const errTxt = await attachResp.text().catch(()=>'');
+      console.warn('[VP] attach failed:', attachResp.status, errTxt);
+      // Item was created, attachment failed — still success for the record
+      toast(`Eintrag erstellt, Anhang schlug fehl (${attachResp.status}). Eintrag trotzdem gespeichert.`,'info');
+    } else {
+      // ── Step 5: Patch DateiUrl with the permanent attachment URL ─────
+      // SP attachment URL pattern: {siteUrl}/Lists/{listName}/Attachments/{itemId}/{filename}
+      // Note: listName for URL uses the list's URL name (often same as display name without spaces)
+      const listUrlName = vpListName.replace(/\s+/g,'%20');
+      const attachUrl   = `${vpSiteWebUrl}/Lists/${listUrlName}/Attachments/${numericId}/${encodeURIComponent(attachName)}`;
+      console.log('[VP] attachment URL:', attachUrl);
+
+      const dateUrlCol  = vpField('DateiUrl');
+      const dateNmCol   = vpField('DateiName');
+      if (dateUrlCol || dateNmCol) {
+        const patch = {};
+        if (dateUrlCol) patch[dateUrlCol] = attachUrl;
+        if (dateNmCol)  patch[dateNmCol]  = attachName;
+        try { await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${numericId}/fields`, patch); }
+        catch(e) { console.warn('[VP] patch DateiUrl failed:', e.message); }
+      }
+      toast(`✓ Version ${ver} – „${attachName}" als Anhang gespeichert`,'success');
+    }
+
+    vpmFile = null;
+    if (selected) await loadVpEntries(selected);
+  } catch(e) {
+    toast('VP-Upload-Fehler: ' + e.message, 'error');
+    console.error('[VP] upload error:', e);
+  }
+}
 
 function openVpUploadModal(prefilledVer='') {
-  if(!drive||!selected){toast('Bitte zuerst eine Datei auswählen','info');return;}
+  if(!selected){toast('Bitte zuerst eine Datei auswählen','info');return;}
   vpmFile=null;
   $id('vpm-file').value='';
   $id('vpm-comment').value='';
   $id('vpm-status').value='';
-  $id('vpm-ver').value = prefilledVer || '';
+  $id('vpm-ver').value = prefilledVer||'';
   $id('vpm-fname').style.display='none';
   $id('vpm-err').style.display='none';
   $id('vpm-confirm').style.opacity='.45';
   $id('vpm-confirm').style.pointerEvents='none';
-  $id('vp-modal-sub').textContent=`Datei zu „${selected.name}"`;
+  $id('vp-modal-sub').textContent=`Anhang zu „${selected.name}" in Versionsprotokoll`;
   $id('vpm-drop').style.borderColor='var(--border2)';
   $id('vpm-drop').style.background='var(--bg)';
   $id('vp-modal-ov').style.display='flex';
-  // Focus version field if empty
   setTimeout(()=>{ const v=$id('vpm-ver'); if(v&&!v.value) v.focus(); }, 80);
 }
 function closeVpUploadModal() { $id('vp-modal-ov').style.display='none'; }
@@ -2556,27 +2674,38 @@ function renderMainVpTree(item, entries) {
       const dt   = f[vpField('Datum')]||f.Datum||f.Date||f.Created||it.createdDateTime||'';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
 
-      // File URL: exhaustive scan across all fields and SP Hyperlink objects
+      // File URL: check DateiUrl field + all SP Attachment URLs
       let dlUrl = '';
       let dlNm  = f[vpField('DateiName')]||f.DateiName||f.Dateiname||f.FileName||'';
-      // Try known field names first
+
+      // 1. Try explicit DateiUrl/AttachmentUrl fields first
       const urlFieldKeys = [
-        vpField('DateiUrl'), 'DateiUrl','AttachmentUrl','WebUrl','FileUrl',
+        vpField('DateiUrl'),'DateiUrl','AttachmentUrl','WebUrl','FileUrl',
         'Datei_x002d_Link','DateiLink','Datei_x0020_Link','Link','URL','Datei'
       ];
       for (const key of urlFieldKeys) {
         if (!key) continue;
         const val = f[key];
         if (!val) continue;
-        if (typeof val === 'string' && val.startsWith('http')) { dlUrl=val; break; }
-        if (typeof val === 'object' && val?.Url) { dlUrl=val.Url; if(!dlNm&&val.Description) dlNm=val.Description; break; }
+        if (typeof val==='string' && val.startsWith('http')) { dlUrl=val; break; }
+        if (typeof val==='object' && val?.Url) { dlUrl=val.Url; if(!dlNm&&val.Description) dlNm=val.Description; break; }
       }
-      // Scan ALL fields as fallback
+
+      // 2. Check list item Attachments array (populated by $expand=fields on list items)
+      if (!dlUrl && it.AttachmentFiles) {
+        const att = it.AttachmentFiles?.value?.[0] || it.AttachmentFiles?.[0];
+        if (att?.ServerRelativeUrl) {
+          dlUrl = `${vpSiteWebUrl}${att.ServerRelativeUrl}`;
+          if (!dlNm) dlNm = att.FileName || '';
+        }
+      }
+
+      // 3. Scan ALL fields for any SharePoint http URL
       if (!dlUrl) {
         for (const [k,v] of Object.entries(f)) {
-          if (typeof v==='string' && v.startsWith('https://') && (v.includes('sharepoint.com')||v.includes('1drv'))) {
-            if (!k.toLowerCase().includes('site')) { dlUrl=v; break; }
-          }
+          if (typeof v==='string' && v.startsWith('https://') &&
+              (v.includes('sharepoint.com')||v.includes('1drv')) &&
+              !k.toLowerCase().includes('site')) { dlUrl=v; break; }
           if (typeof v==='object' && v?.Url?.startsWith('https://')) { dlUrl=v.Url; break; }
         }
       }
