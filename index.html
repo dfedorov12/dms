@@ -212,13 +212,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 }
 .tree-toggle:hover{border-color:var(--navy);color:var(--navy);background:var(--bg);}
 .tree-toggle.no-tog{visibility:hidden;pointer-events:none;}
-.tree-card{
-  flex:1;background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r-sm);
-  cursor:pointer;transition:box-shadow .12s,border-color .12s;
-  user-select:none;display:flex;align-items:center;gap:10px;
-  padding:8px 12px;
-}
+.tree-card{flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-sm);cursor:pointer;transition:box-shadow .12s,border-color .12s;user-select:none;display:flex;align-items:center;gap:10px;padding:8px 12px;overflow:hidden;}
 .tree-card:hover{box-shadow:var(--shadow-sm);border-color:var(--border2);}
 .tree-card.folder-card{border-left:3px solid #f59e0b;}
 .tree-card.file-card{border-left:3px solid var(--red);}
@@ -233,8 +227,8 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .tc-badge{font-size:9px;padding:1px 6px;border-radius:5px;font-weight:600;}
 .tc-badge.folder-b{background:rgba(245,158,11,.12);color:#b45309;}
 .tc-badge.file-b{background:var(--red-bg);color:var(--red);}
-.tc-act-btn{margin-left:auto;flex-shrink:0;background:none;border:1.5px solid var(--border);color:var(--text-dim);padding:5px 9px;border-radius:5px;font-size:13px;transition:all .15s;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;}
-.tc-act-btn:hover{border-color:var(--navy);color:var(--navy);background:rgba(10,31,60,.06);}
+.tc-act-btn{flex-shrink:0;background:var(--bg);border:1.5px solid var(--border2);color:var(--navy);padding:3px 8px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:.04em;transition:all .15s;cursor:pointer;white-space:nowrap;}
+.tc-act-btn:hover{background:var(--navy);color:#fff;border-color:var(--navy);}
 .tc-del-btn{margin-left:4px;flex-shrink:0;background:none;border:none;color:rgba(192,57,43,.35);padding:5px 6px;border-radius:5px;font-size:12px;transition:all .15s;cursor:pointer;}
 .tc-del-btn:hover{color:var(--red);background:var(--red-bg);}
 /* indent children */
@@ -664,6 +658,7 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
       <button class="hdr-btn" id="btn-upload" id="sb-upload-btn" onclick="openUploadModal(false)" disabled>⬆ Upload</button>
       <button class="hdr-btn" id="btn-folder" id="sb-folder-btn" onclick="openFolderModal()" disabled>📁 Neu</button>
       <button class="hdr-btn" id="sb-refresh-btn" onclick="refreshCurrent()" disabled>🔄</button>
+      <button class="hdr-btn" onclick="openRecycleBin()" title="Papierkorb öffnen" style="opacity:.7;">🗑</button>
       <div class="hdr-user">
         <div class="hdr-av" id="hdr-av">?</div>
         <div class="hdr-uname" id="hdr-uname">…</div>
@@ -1551,7 +1546,10 @@ async function loadFolder(folderId) {
       ?`/drives/${drive.id}/root/children?$top=200&$orderby=name&$select=id,name,size,file,folder,webUrl,lastModifiedDateTime,lastModifiedBy,@microsoft.graph.downloadUrl`
       :`/drives/${drive.id}/items/${folderId}/children?$top=200&$orderby=name&$select=id,name,size,file,folder,webUrl,lastModifiedDateTime,lastModifiedBy,@microsoft.graph.downloadUrl`;
     const d=await gGet(url);
-    const items=(d.value||[]).sort((a,b)=>{
+    const items=(d.value||[]).filter(i=>
+      // Hide internal version storage folders
+      !(i.folder && (i.name==='_Versionen' || i.name==='Versionsprotokoll'))
+    ).sort((a,b)=>{
       if(a.folder&&!b.folder)return -1; if(!a.folder&&b.folder)return 1;
       return (a.name||'').localeCompare(b.name||'','de');
     });
@@ -1636,8 +1634,8 @@ function mkTreeNode(item, depth=0) {
         :`<span class="tc-badge file-b">${getExt(item.name)}</span>`}
       </div>
     </div>
-    ${isF?`<button class="tc-act-btn tc-pin-btn" title="Ordner merken" style="font-size:13px;">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
-    ${!isF?`<button class="tc-act-btn" title="Versionen verwalten">🗂</button>`:''}
+    ${isF?`<button class="tc-act-btn tc-pin-btn" style="font-size:12px;padding:3px 7px;">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
+    ${!isF?`<button class="tc-act-btn" title="Versionen">Vers.</button>`:''}
     <button class="tc-del-btn" title="${isF?'Ordner':'Datei'} löschen">🗑</button>`;
   if(isF) {
     const pinBtn=card.querySelector('.tc-pin-btn');
@@ -1680,7 +1678,6 @@ function mkTreeNode(item, depth=0) {
 
   // Click card: file → open in SharePoint; folder → navigate; 🗂 button → version panel
   card.addEventListener('click', async(e)=>{
-    if(e.target.closest('.tc-act-btn')) return; // handled by 🗂 button
     if(isF){
       pathStack.push({id:item.id,name:item.name});
       updateBreadcrumb();
@@ -2098,12 +2095,38 @@ async function doVpUpload() {
     }
     if (!newItem) throw new Error('Listeneintrag konnte nicht erstellt werden.');
 
-    // ── Step 5: If Datei-Link wasn't set in POST, patch it now ─────
-    if (fileWebUrl && linkColName && !fields[linkColName]) {
-      try {
-        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
-          {[linkColName]: fileWebUrl});
-      } catch {}
+    // ── Step 5: ALWAYS patch Datei-Link after item creation ───────────
+    // We do this separately because Hyperlink columns can be tricky in POST
+    if (fileWebUrl) {
+      // Try all possible internal names for "Datei-Link" column
+      const linkCandidates = [
+        linkColName,
+        'Datei_x002d_Link',   // SP internal name for "Datei-Link" (hyphen encoded)
+        'DateiLink',
+        'Datei_x0020_Link',
+        'DateiUrl',
+        'Link',
+      ].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i); // unique
+
+      for (const col of linkCandidates) {
+        if (!vpColumns[col]) continue; // skip if column doesn't exist in list
+        try {
+          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
+            {[col]: fileWebUrl});
+          console.log('[VP] Datei-Link patched via column:', col, '→', fileWebUrl);
+          break;
+        } catch(pe) {
+          // Try as hyperlink object
+          try {
+            await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
+              {[col]: {Url: fileWebUrl, Description: attachName}});
+            console.log('[VP] Datei-Link patched as hyperlink object via:', col);
+            break;
+          } catch(pe2) {
+            console.warn('[VP] patch via', col, 'failed:', pe2.message);
+          }
+        }
+      }
     }
 
     const msg = fileWebUrl
@@ -2515,17 +2538,17 @@ function showRestoreHint(item) {
   t.querySelector('button').addEventListener('click', ()=>{ clearTimeout(timer); t.remove(); });
 }
 
+function openRecycleBin() {
+  // Open the SP recycle bin for the current site
+  const url = currentSite?.webUrl
+    ? `${currentSite.webUrl}/_layouts/15/RecycleBin.aspx`
+    : (drive?.siteId ? '#' : null);
+  if (url && url !== '#') { window.open(url, '_blank'); }
+  else { toast('Bitte zuerst eine SharePoint-Site auswählen','info'); }
+}
+
 async function restoreLastDeleted() {
-  if (!lastDeletedItem || !currentSite) {
-    toast('Kein Element zum Wiederherstellen','info'); return;
-  }
-  try {
-    // SP REST: restore from recycle bin by item ID (need the recycle bin item ID)
-    // Graph doesn't support recycle bin restore, so we open SP recycle bin in new tab
-    const rbUrl = `${currentSite.webUrl}/_layouts/15/RecycleBin.aspx`;
-    window.open(rbUrl, '_blank');
-    toast('SharePoint Papierkorb geöffnet – Element dort wiederherstellen','info');
-  } catch(e) { toast('Fehler: '+e.message,'error'); }
+  openRecycleBin();
 }
 function bootMsg(txt){$id('boot-txt').textContent=txt;}
 function bootErr(html){const e=$id('boot-err');e.innerHTML=html;e.style.display='block';$id('boot-txt').textContent='';bootSpinner(false);}
