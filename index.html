@@ -214,10 +214,10 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .tree-toggle.no-tog{visibility:hidden;pointer-events:none;}
 .tree-card{
   flex:1;background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r-sm);position:relative;
+  border-radius:var(--r-sm);
   cursor:pointer;transition:box-shadow .12s,border-color .12s;
   user-select:none;display:flex;align-items:center;gap:10px;
-  padding:8px 42px 8px 12px;
+  padding:8px 12px;
 }
 .tree-card:hover{box-shadow:var(--shadow-sm);border-color:var(--border2);}
 .tree-card.folder-card{border-left:3px solid #f59e0b;}
@@ -233,8 +233,10 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .tc-badge{font-size:9px;padding:1px 6px;border-radius:5px;font-weight:600;}
 .tc-badge.folder-b{background:rgba(245,158,11,.12);color:#b45309;}
 .tc-badge.file-b{background:var(--red-bg);color:var(--red);}
-.tc-act-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(10,31,60,.3);padding:4px 6px;border-radius:4px;font-size:16px;transition:all .15s;cursor:pointer;line-height:1;}
-.tc-act-btn:hover{color:var(--navy);background:rgba(10,31,60,.06);}
+.tc-act-btn{margin-left:auto;flex-shrink:0;background:none;border:1.5px solid var(--border);color:var(--text-dim);padding:5px 9px;border-radius:5px;font-size:13px;transition:all .15s;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;}
+.tc-act-btn:hover{border-color:var(--navy);color:var(--navy);background:rgba(10,31,60,.06);}
+.tc-del-btn{margin-left:4px;flex-shrink:0;background:none;border:none;color:rgba(192,57,43,.35);padding:5px 6px;border-radius:5px;font-size:12px;transition:all .15s;cursor:pointer;}
+.tc-del-btn:hover{color:var(--red);background:var(--red-bg);}
 /* indent children */
 .tree-children{padding-left:28px;display:none;border-left:0;}
 .tree-node.expanded>.tree-children{display:block;}
@@ -1634,9 +1636,9 @@ function mkTreeNode(item, depth=0) {
         :`<span class="tc-badge file-b">${getExt(item.name)}</span>`}
       </div>
     </div>
-    ${isF?`<button class="tc-act-btn tc-pin-btn" title="Ordner merken" style="background:none;border:none;font-size:13px;cursor:pointer;padding:3px 5px;opacity:${isFolderPinned(item.id)?'1':'.3'};" data-folder-id="${item.id}">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
-    ${!isF?`<button class="tc-act-btn" title="Versionen verwalten">🗂</button>`:''}`;
-
+    ${isF?`<button class="tc-act-btn tc-pin-btn" title="Ordner merken" style="font-size:13px;">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
+    ${!isF?`<button class="tc-act-btn" title="Versionen verwalten">🗂</button>`:''}
+    <button class="tc-del-btn" title="${isF?'Ordner':'Datei'} löschen">🗑</button>`;
   if(isF) {
     const pinBtn=card.querySelector('.tc-pin-btn');
     if(pinBtn) pinBtn.addEventListener('click', e=>{
@@ -1644,17 +1646,33 @@ function mkTreeNode(item, depth=0) {
       if(isFolderPinned(item.id)){ unpinFolder(item.id); pinBtn.textContent='🔖'; pinBtn.style.opacity='.3'; toast('Ordner entfernt','info'); }
       else { pinFolder(item); pinBtn.textContent='📌'; pinBtn.style.opacity='1'; toast(`📌 „${item.name}" gemerkt`,'success'); }
     });
-    // Folder drag target
     card.ondragover=e=>{e.preventDefault();card.classList.add('drag-over');};
     card.ondragleave=()=>card.classList.remove('drag-over');
     card.ondrop=e=>{e.preventDefault();card.classList.remove('drag-over');if(dragId&&dragId!==item.id)moveItem(dragId,item.id,item.name);};
   } else {
-    // File — version panel button
     card.querySelector('.tc-act-btn')?.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
     card.draggable=true;
     card.ondragstart=e=>{dragId=item.id;card.classList.add('dragging');e.dataTransfer.effectAllowed='move';};
     card.ondragend=()=>{card.classList.remove('dragging');dragId=null;};
   }
+
+  // Delete button (moves to SP recycle bin via Graph DELETE)
+  card.querySelector('.tc-del-btn')?.addEventListener('click', async e=>{
+    e.stopPropagation();
+    const label = isF ? `Ordner „${item.name}"` : `Datei „${item.name}"`;
+    if(!confirm(`${label} in den Papierkorb verschieben?`)) return;
+    try {
+      await fetch(`https://graph.microsoft.com/v1.0/drives/${drive.id}/items/${item.id}`,
+        {method:'DELETE', headers:{Authorization:'Bearer '+await getToken()}});
+      toast(`🗑 ${label} gelöscht`, 'success');
+      // Show restore hint
+      showRestoreHint(item);
+      // Reload folder
+      const fid = pathStack[pathStack.length-1]?.id||'root';
+      delete cache[fid];
+      await loadFolder(fid);
+    } catch(e2){ toast('Löschen fehlgeschlagen: '+e2.message,'error'); }
+  });
 
   // Children container
   const children=document.createElement('div');
@@ -1996,118 +2014,110 @@ async function doVpUpload() {
   const status = ($id('vpm-status').value||'').trim();
   $id('vpm-err').style.display='none';
   closeVpUploadModal();
-  toast(`📋 Erstelle Versionseintrag für „${vpmFile.name}"…`,'info');
+  toast(`📋 Erstelle Versionseintrag…`, 'info');
 
   try {
-    // ── Step 1: Get parent file's permanent SP webUrl ──────────────────
+    // ── Step 1: Get parent file webUrl ─────────────────────────────
     let parentWebUrl = selected.webUrl || '';
     const parentItemId = selected.id || '';
     if (!parentWebUrl && drive && parentItemId) {
       try {
         const fresh = await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`);
         parentWebUrl = fresh.webUrl || '';
-      } catch(e) { console.warn('[VP] could not fetch parent webUrl:', e.message); }
+      } catch {}
     }
-    console.log('[VP] parent webUrl:', parentWebUrl);
 
-    // ── Step 2: Build list item fields ────────────────────────────────
-    const linkColName   = vpField('Dateilink');    // "Datei-Link" column
-    const verNrCol      = vpField('VersionNr');
+    // ── Step 2: Upload version file to IT site via Graph ───────────
+    // Store in IT site default drive: /Versionsprotokoll/{listItemTitle}/{ver}_{filename}
+    const safeTitle = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
+    const safeVer   = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const attachName= `${safeVer}_${vpmFile.name}`;
+    const uploadPath= `/Versionsprotokoll/${safeTitle}/${attachName}`;
+    const buf       = await vpmFile.arrayBuffer();
+
+    let fileWebUrl = '';
+    try {
+      const uploaded = await gPut(
+        `/sites/${vpSiteId}/drive/root:${uploadPath}:/content`,
+        buf, vpmFile.type||'application/octet-stream'
+      );
+      fileWebUrl = uploaded.webUrl || '';
+      console.log('[VP] file uploaded to IT site:', fileWebUrl);
+    } catch(uploadErr) {
+      console.warn('[VP] IT site upload failed:', uploadErr.message);
+      // Fallback: store in current drive if available
+      if (drive) {
+        try {
+          const fid = pathStack[pathStack.length-1]?.id||'root';
+          const fallbackUrl = fid==='root'
+            ? `/drives/${drive.id}/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`
+            : `/drives/${drive.id}/items/${fid}:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`;
+          const u2 = await gPut(fallbackUrl, buf, vpmFile.type||'application/octet-stream');
+          fileWebUrl = u2.webUrl || '';
+          console.log('[VP] fallback upload ok:', fileWebUrl);
+        } catch(e2) { console.warn('[VP] fallback upload also failed:', e2.message); }
+      }
+    }
+
+    // ── Step 3: Build list item fields ────────────────────────────
+    const linkColName   = vpField('Dateilink');
     const fileItemIdCol = vpField('FileItemId');
+    const verNrCol      = vpField('VersionNr');
 
-    const fields = { Title: selected.name };  // Title = filename → used for filtering
+    const fields = { Title: selected.name };
     const meta = {
-      VersionNr: ver,
-      Kommentar: komm,
-      Status_:   status,
-      Datum:     new Date().toISOString(),
-      Autor:     account?.name || account?.username || '',
-      DateiName: vpmFile.name,
-      FileItemId:parentItemId,
+      VersionNr:  ver,
+      Kommentar:  komm,
+      Status_:    status,
+      Datum:      new Date().toISOString(),
+      Autor:      account?.name||account?.username||'',
+      DateiName:  attachName,
+      DateiUrl:   fileWebUrl,
+      FileItemId: parentItemId,
     };
-    for (const [lg, val] of Object.entries(meta)) {
+    for (const [lg,val] of Object.entries(meta)) {
       if (!val) continue;
       const col = vpField(lg);
       if (col) fields[col] = val;
     }
-    // NOTE: Datei-Link will be patched AFTER upload with the attachment URL
+    // Datei-Link = URL of the VERSION FILE (for open/download)
+    if (linkColName && fileWebUrl) fields[linkColName] = fileWebUrl;
+    if (fileItemIdCol) fields[fileItemIdCol] = parentItemId;
 
-    // ── Step 3: Create SP list item ───────────────────────────────────
+    // ── Step 4: Create list item with progressive fallback ──────────
     let newItem;
-    for (const body of [
+    const postBodies = [
       {fields},
-      {fields: {...fields, ...(linkColName&&parentWebUrl?{[linkColName]:{Url:parentWebUrl,Description:selected.name}}:{})}},
-      {fields: {Title:selected.name, ...(vpField('VersionNr')?{[vpField('VersionNr')]:ver}:{})}},
+      {fields: {...fields, ...(linkColName&&fileWebUrl?{[linkColName]:{Url:fileWebUrl,Description:attachName}}:{})}},
+      {fields: {Title:selected.name, ...(verNrCol?{[verNrCol]:ver}:{}), ...(fileItemIdCol?{[fileItemIdCol]:parentItemId}:{})}},
       {fields: {Title:selected.name}},
-    ]) {
+    ];
+    for (const body of postBodies) {
       try { newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, body); break; }
-      catch(e) { console.warn('[VP] POST attempt failed:', e.message); }
+      catch(e) { console.warn('[VP] POST failed:', e.message); }
     }
-    if (!newItem) throw new Error('Liste konnte nicht beschrieben werden.');
-    const numericId = newItem.id; // SP uses numeric string IDs for attachments
-    console.log('[VP] list item created, id:', numericId);
+    if (!newItem) throw new Error('Listeneintrag konnte nicht erstellt werden.');
 
-    // ── Step 4: Attach file to the list item via SP REST ─────────────
-    //  URL: {siteWebUrl}/_api/web/lists(guid'{listId}')/items({id})/AttachmentFiles/add(FileName='{name}')
-    const token      = await getToken();
-    const attachName = vpmFile.name;
-    const buf        = await vpmFile.arrayBuffer();
-    const spRestUrl  = `${vpSiteWebUrl}/_api/web/lists(guid'${vpListId}')/items(${numericId})/AttachmentFiles/add(FileName='${encodeURIComponent(attachName)}')`;
-
-    const attachResp = await fetch(spRestUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type':  'application/octet-stream',
-        'Accept':        'application/json;odata=verbose',
-      },
-      body: buf,
-    });
-
-    if (!attachResp.ok) {
-      const errTxt = await attachResp.text().catch(()=>'');
-      console.warn('[VP] attach failed:', attachResp.status, errTxt);
-      toast(`Eintrag erstellt, Anhang fehlgeschlagen (${attachResp.status}).`,'info');
-    } else {
-      // ── Step 5: Patch Datei-Link with the permanent SP attachment URL ──
-      // Attachment URL: {siteWebUrl}/Lists/{listName}/Attachments/{itemId}/{filename}
-      const listUrlName  = encodeURIComponent(vpListName);
-      const attachUrl    = `${vpSiteWebUrl}/Lists/${listUrlName}/Attachments/${numericId}/${encodeURIComponent(attachName)}`;
-      console.log('[VP] attachment URL:', attachUrl);
-
-      const patchFields = {};
-      // Datei-Link = URL to open/download the version file
-      if (linkColName) patchFields[linkColName] = attachUrl;
-      // Also try as hyperlink object
-      const dateUrlCol = vpField('DateiUrl');
-      const dateNmCol  = vpField('DateiName');
-      if (dateUrlCol) patchFields[dateUrlCol] = attachUrl;
-      if (dateNmCol)  patchFields[dateNmCol]  = attachName;
-
-      if (Object.keys(patchFields).length) {
-        try {
-          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${numericId}/fields`, patchFields);
-          console.log('[VP] Datei-Link patched:', attachUrl);
-        } catch(pe) {
-          // Try as hyperlink object
-          if (linkColName) {
-            try {
-              await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${numericId}/fields`,
-                {...patchFields, [linkColName]: {Url: attachUrl, Description: attachName}});
-            } catch(pe2) { console.warn('[VP] patch Datei-Link failed:', pe2.message); }
-          }
-        }
-      }
-      toast(`✓ Version ${ver} – „${attachName}" gespeichert & Datei-Link gesetzt`,'success');
+    // ── Step 5: If Datei-Link wasn't set in POST, patch it now ─────
+    if (fileWebUrl && linkColName && !fields[linkColName]) {
+      try {
+        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
+          {[linkColName]: fileWebUrl});
+      } catch {}
     }
 
+    const msg = fileWebUrl
+      ? `✓ Version ${ver} gespeichert – Datei-Link gesetzt`
+      : `✓ Version ${ver} gespeichert (ohne Dateianhang)`;
+    toast(msg, 'success');
     vpmFile = null;
     if (selected) await loadVpEntries(selected);
   } catch(e) {
     toast('VP-Upload-Fehler: ' + e.message, 'error');
-    console.error('[VP] upload error:', e);
+    console.error('[VP] error:', e);
   }
 }
+
 
 function openVpUploadModal(prefilledVer='') {
   if(!selected){toast('Bitte zuerst eine Datei auswählen','info');return;}
@@ -2489,6 +2499,34 @@ function toast(msg,type='info'){
   $id('toast-c').appendChild(t);
   setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),260);},4000);
 }
+
+// Show restore toast with Undo button (uses SP recycle bin via REST)
+let lastDeletedItem = null;
+function showRestoreHint(item) {
+  lastDeletedItem = item;
+  const tc = $id('toast-c');
+  const t  = document.createElement('div');
+  t.className='toast';
+  t.style.cssText='cursor:pointer;background:var(--navy3,#16345a);';
+  t.innerHTML=`<span>🗑</span><span>„${esc(item.name)}" gelöscht</span><button onclick="restoreLastDeleted()" style="margin-left:8px;background:rgba(255,255,255,.15);border:none;color:#fff;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer;">↩ Wiederherstellen</button>`;
+  tc.appendChild(t);
+  // Auto-remove after 8 s
+  const timer = setTimeout(()=>{ t.classList.add('out'); setTimeout(()=>t.remove(),260); }, 8000);
+  t.querySelector('button').addEventListener('click', ()=>{ clearTimeout(timer); t.remove(); });
+}
+
+async function restoreLastDeleted() {
+  if (!lastDeletedItem || !currentSite) {
+    toast('Kein Element zum Wiederherstellen','info'); return;
+  }
+  try {
+    // SP REST: restore from recycle bin by item ID (need the recycle bin item ID)
+    // Graph doesn't support recycle bin restore, so we open SP recycle bin in new tab
+    const rbUrl = `${currentSite.webUrl}/_layouts/15/RecycleBin.aspx`;
+    window.open(rbUrl, '_blank');
+    toast('SharePoint Papierkorb geöffnet – Element dort wiederherstellen','info');
+  } catch(e) { toast('Fehler: '+e.message,'error'); }
+}
 function bootMsg(txt){$id('boot-txt').textContent=txt;}
 function bootErr(html){const e=$id('boot-err');e.innerHTML=html;e.style.display='block';$id('boot-txt').textContent='';bootSpinner(false);}
 function showBootBtn(){$id('boot-btn').style.display='block';}
@@ -2618,7 +2656,7 @@ function renderMainVpTree(item, entries) {
         <div class="mv-card">
           <div class="mv-card-head">
             <span class="mv-ver-pill">${esc(ver)}</span>
-            ${isLatest?'<span class="mv-badge-cur">✓ Aktuell</span>':''}
+            
             ${stat?`<span class="mv-status-pill ${statClass}">${esc(stat)}</span>`:''}
           </div>
           <div class="mv-meta">${dtFmt}${autor?' · '+esc(autor.split(' ')[0]):''}</div>
