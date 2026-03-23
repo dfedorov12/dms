@@ -1152,16 +1152,24 @@ async function initVpList() {
     if (!listData) throw new Error(`Liste "${VP_LIST_NAME}" nicht gefunden`);
     vpListId   = listData.id;
     vpListName = listData.displayName || listData.name || VP_LIST_NAME;
-    // Fetch ALL columns — build name↔displayName maps
+
+    // Fetch ALL columns with full metadata
     const cols = await gGet(`/sites/${vpSiteId}/lists/${vpListId}/columns?$top=200`);
     vpColumns = {}; vpColByDisplay = {};
     (cols.value||[]).forEach(c=>{
+      if (c.readOnly) return;           // skip read-only columns entirely
+      if (c.hidden && c.name !== 'Title') return; // skip hidden except Title
       vpColumns[c.name] = c.displayName;
       vpColByDisplay[(c.displayName||'').toLowerCase().trim()] = c.name;
+      // also index by internal name lowercased
+      vpColByDisplay[c.name.toLowerCase()] = c.name;
     });
+
     resolveVpCols();
-    console.log('VP list ready. siteWebUrl:', vpSiteWebUrl, 'listName:', vpListName);
-    console.log('Columns:', Object.entries(vpColumns).map(([k,v])=>`${k}=${v}`).join(', '));
+    console.log('[VP] List ready:', vpListName);
+    console.log('[VP] ALL writable columns:');
+    Object.entries(vpColumns).forEach(([k,v]) => console.log(`  internal="${k}"  display="${v}"`));
+    console.log('[VP] Resolved VP_COLS:', JSON.stringify(VP_COLS));
   } catch(e) {
     console.warn('VP list init failed:', e.message);
   }
@@ -1172,34 +1180,46 @@ async function initVpList() {
 const VP_COLS = {}; // { VersionNr: 'Versionsnummer', DateiLink: 'Datei_x002d_Link', ... }
 
 function resolveVpCols() {
-  // Clear previous
   Object.keys(VP_COLS).forEach(k => delete VP_COLS[k]);
 
-  // Map logical → list of possible display names OR internal names to try
-  const tryNames = {
-    VersionNr: ['Versionsnummer','Version','VersionNr','VersionNumber'],
-    Kommentar: ['Kommentar','Comment','Beschreibung'],
-    Status_:   ['Status','Zustand'],
-    Datum:     ['Datum','Date','Zeitpunkt'],
-    Autor:     ['Benutzer','Autor','Author'],
-    DateiLink: ['Datei-Link','Dateilink','DateiLink','Datei_x002d_Link','Link','URL'],
-    DateiName: ['Dateiname','DateiName','FileName'],
-    FileItemId:['FileItemId','ItemId','DriveItemId'],
-  };
+  // For each writable column, check display name for keywords
+  for (const [internalName, displayName] of Object.entries(vpColumns)) {
+    const dn = (displayName||'').toLowerCase().trim();
+    const n  = internalName.toLowerCase();
 
-  for (const [logical, names] of Object.entries(tryNames)) {
-    for (const n of names) {
-      // Try as internal name directly
-      if (vpColumns[n]) { VP_COLS[logical] = n; break; }
-      // Try as display name
-      const internal = vpColByDisplay[n.toLowerCase()];
-      if (internal && vpColumns[internal]) { VP_COLS[logical] = internal; break; }
+    // Versionsnummer / Version
+    if (!VP_COLS.VersionNr && (dn.includes('version') || n.includes('version'))) {
+      VP_COLS.VersionNr = internalName;
+    }
+    // Kommentar
+    if (!VP_COLS.Kommentar && (dn.includes('kommentar') || dn.includes('comment') || dn.includes('beschreibung'))) {
+      VP_COLS.Kommentar = internalName;
+    }
+    // Status
+    if (!VP_COLS.Status_ && dn === 'status') {
+      VP_COLS.Status_ = internalName;
+    }
+    // Datum / Date
+    if (!VP_COLS.Datum && (dn === 'datum' || dn === 'date' || dn === 'zeitpunkt')) {
+      VP_COLS.Datum = internalName;
+    }
+    // Benutzer / Autor (Person field shown as "Benutzer" in screenshot)
+    if (!VP_COLS.Autor && (dn === 'benutzer' || dn === 'autor' || dn === 'author')) {
+      VP_COLS.Autor = internalName;
+    }
+    // Datei-Link — SP stores "Datei-Link" as "Datei_x002d_Link" internally
+    if (!VP_COLS.DateiLink && (
+      dn === 'datei-link' || dn === 'dateilink' || dn.includes('datei') && dn.includes('link') ||
+      n === 'datei_x002d_link' || n === 'dateilink'
+    )) {
+      VP_COLS.DateiLink = internalName;
+    }
+    // Dateiname
+    if (!VP_COLS.DateiName && (dn === 'dateiname' || dn === 'datei name' || dn.includes('datei') && dn.includes('name'))) {
+      VP_COLS.DateiName = internalName;
     }
   }
 
-  // Log all available columns so we can debug
-  console.log('[VP] Available columns (internal=display):',
-    Object.entries(vpColumns).map(([k,v])=>`${k}="${v}"`).join(', '));
   console.log('[VP] Resolved VP_COLS:', JSON.stringify(VP_COLS));
 }
 
@@ -2093,39 +2113,52 @@ async function doVpUpload() {
     const itemId = newItem.id;
     console.log('[VP] item created, id:', itemId);
 
-    // ── Step 4: PATCH each field individually (ignore errors per field) ─
-    // This way one wrong field type never blocks everything
-    const patches = [];
-    if (VP_COLS.VersionNr)  patches.push([VP_COLS.VersionNr,  ver]);
-    if (VP_COLS.Kommentar && komm) patches.push([VP_COLS.Kommentar, komm]);
-    if (VP_COLS.Status_ && status) patches.push([VP_COLS.Status_,   status]);
-    if (VP_COLS.DateiName)  patches.push([VP_COLS.DateiName,  attachName]);
-    if (VP_COLS.FileItemId) patches.push([VP_COLS.FileItemId, parentItemId]);
-    // Datum: SP wants ISO string for DateTime columns
-    if (VP_COLS.Datum) patches.push([VP_COLS.Datum, new Date().toISOString()]);
+    // ── Step 4: PATCH each field individually ──────────────────────
+    // Log what we're about to write
+    console.log('[VP] Will PATCH itemId:', itemId);
+    console.log('[VP] VP_COLS at upload time:', JSON.stringify(VP_COLS));
+    console.log('[VP] fileWebUrl:', fileWebUrl);
 
-    // Datei-Link (Hyperlink column): try plain string, then object
-    if (fileWebUrl && VP_COLS.DateiLink) {
-      patches.push([VP_COLS.DateiLink, fileWebUrl]);
+    const patches = [];
+    if (VP_COLS.VersionNr)  patches.push([VP_COLS.VersionNr,  ver, 'string']);
+    if (VP_COLS.Kommentar && komm) patches.push([VP_COLS.Kommentar, komm, 'string']);
+    if (VP_COLS.Status_ && status) patches.push([VP_COLS.Status_,   status, 'string']);
+    if (VP_COLS.DateiName)  patches.push([VP_COLS.DateiName,  attachName, 'string']);
+    if (VP_COLS.Datum)      patches.push([VP_COLS.Datum, new Date().toISOString(), 'string']);
+
+    // Datei-Link: try both the resolved col AND 'Datei_x002d_Link' as fallback
+    const dateiLinkCols = [...new Set([
+      VP_COLS.DateiLink,
+      'Datei_x002d_Link',
+      vpColumns['Datei_x002d_Link'] ? 'Datei_x002d_Link' : null,
+    ].filter(Boolean))];
+
+    if (fileWebUrl) {
+      for (const col of dateiLinkCols) {
+        patches.push([col, fileWebUrl, 'hyperlink']);
+      }
     }
 
-    for (const [col, val] of patches) {
+    for (const [col, val, type] of patches) {
       try {
-        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,
-          {[col]: val});
-        console.log('[VP] patched', col, '✓');
+        const payload = type === 'hyperlink'
+          ? {[col]: {Url: val, Description: attachName}}
+          : {[col]: val};
+        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, payload);
+        console.log('[VP] ✓ patched', col, '=', typeof val === 'string' ? val.substring(0,50) : val);
+        // If it was hyperlink and worked, remove the duplicate
+        if (type === 'hyperlink') break;
       } catch(pe) {
-        // For Datei-Link, try as hyperlink object
-        if (col === VP_COLS.DateiLink) {
+        console.warn('[VP] ✗ failed', col, pe.message);
+        // For hyperlink cols: also try plain string
+        if (type === 'hyperlink') {
           try {
-            await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,
-              {[col]: {Url: val, Description: attachName}});
-            console.log('[VP] patched', col, 'as hyperlink ✓');
+            await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, {[col]: val});
+            console.log('[VP] ✓ patched', col, 'as plain string');
+            break;
           } catch(pe2) {
-            console.warn('[VP] could not patch', col, pe2.message);
+            console.warn('[VP] ✗ plain string also failed', col, pe2.message);
           }
-        } else {
-          console.warn('[VP] skipped field', col, pe.message);
         }
       }
     }
