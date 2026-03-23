@@ -214,10 +214,10 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .tree-toggle.no-tog{visibility:hidden;pointer-events:none;}
 .tree-card{
   flex:1;background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r-sm);
+  border-radius:var(--r-sm);position:relative;
   cursor:pointer;transition:box-shadow .12s,border-color .12s;
   user-select:none;display:flex;align-items:center;gap:10px;
-  padding:8px 12px;
+  padding:8px 42px 8px 12px;
 }
 .tree-card:hover{box-shadow:var(--shadow-sm);border-color:var(--border2);}
 .tree-card.folder-card{border-left:3px solid #f59e0b;}
@@ -233,8 +233,8 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 .tc-badge{font-size:9px;padding:1px 6px;border-radius:5px;font-weight:600;}
 .tc-badge.folder-b{background:rgba(245,158,11,.12);color:#b45309;}
 .tc-badge.file-b{background:var(--red-bg);color:var(--red);}
-.tc-act-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:4px;font-size:14px;font-weight:600;transition:all .15s;flex-shrink:0;margin-left:auto;align-self:center;}
-.tc-act-btn:hover{border-color:var(--navy);color:var(--navy);background:rgba(10,31,60,.06);}
+.tc-act-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(10,31,60,.3);padding:4px 6px;border-radius:4px;font-size:16px;transition:all .15s;cursor:pointer;line-height:1;}
+.tc-act-btn:hover{color:var(--navy);background:rgba(10,31,60,.06);}
 /* indent children */
 .tree-children{padding-left:28px;display:none;border-left:0;}
 .tree-node.expanded>.tree-children{display:block;}
@@ -2011,9 +2011,11 @@ async function doVpUpload() {
     console.log('[VP] parent webUrl:', parentWebUrl);
 
     // ── Step 2: Build list item fields ────────────────────────────────
-    const linkColName   = vpField('Dateilink');
+    const linkColName   = vpField('Dateilink');    // "Datei-Link" column
+    const verNrCol      = vpField('VersionNr');
     const fileItemIdCol = vpField('FileItemId');
-    const fields = { Title: selected.name };
+
+    const fields = { Title: selected.name };  // Title = filename → used for filtering
     const meta = {
       VersionNr: ver,
       Kommentar: komm,
@@ -2028,9 +2030,7 @@ async function doVpUpload() {
       const col = vpField(lg);
       if (col) fields[col] = val;
     }
-    // Datei-Link = permanent SP URL of the parent file (join key + direct link)
-    if (linkColName && parentWebUrl) fields[linkColName] = parentWebUrl;
-    if (fileItemIdCol) fields[fileItemIdCol] = parentItemId;
+    // NOTE: Datei-Link will be patched AFTER upload with the attachment URL
 
     // ── Step 3: Create SP list item ───────────────────────────────────
     let newItem;
@@ -2067,26 +2067,38 @@ async function doVpUpload() {
     if (!attachResp.ok) {
       const errTxt = await attachResp.text().catch(()=>'');
       console.warn('[VP] attach failed:', attachResp.status, errTxt);
-      // Item was created, attachment failed — still success for the record
-      toast(`Eintrag erstellt, Anhang schlug fehl (${attachResp.status}). Eintrag trotzdem gespeichert.`,'info');
+      toast(`Eintrag erstellt, Anhang fehlgeschlagen (${attachResp.status}).`,'info');
     } else {
-      // ── Step 5: Patch DateiUrl with the permanent attachment URL ─────
-      // SP attachment URL pattern: {siteUrl}/Lists/{listName}/Attachments/{itemId}/{filename}
-      // Note: listName for URL uses the list's URL name (often same as display name without spaces)
-      const listUrlName = vpListName.replace(/\s+/g,'%20');
-      const attachUrl   = `${vpSiteWebUrl}/Lists/${listUrlName}/Attachments/${numericId}/${encodeURIComponent(attachName)}`;
+      // ── Step 5: Patch Datei-Link with the permanent SP attachment URL ──
+      // Attachment URL: {siteWebUrl}/Lists/{listName}/Attachments/{itemId}/{filename}
+      const listUrlName  = encodeURIComponent(vpListName);
+      const attachUrl    = `${vpSiteWebUrl}/Lists/${listUrlName}/Attachments/${numericId}/${encodeURIComponent(attachName)}`;
       console.log('[VP] attachment URL:', attachUrl);
 
-      const dateUrlCol  = vpField('DateiUrl');
-      const dateNmCol   = vpField('DateiName');
-      if (dateUrlCol || dateNmCol) {
-        const patch = {};
-        if (dateUrlCol) patch[dateUrlCol] = attachUrl;
-        if (dateNmCol)  patch[dateNmCol]  = attachName;
-        try { await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${numericId}/fields`, patch); }
-        catch(e) { console.warn('[VP] patch DateiUrl failed:', e.message); }
+      const patchFields = {};
+      // Datei-Link = URL to open/download the version file
+      if (linkColName) patchFields[linkColName] = attachUrl;
+      // Also try as hyperlink object
+      const dateUrlCol = vpField('DateiUrl');
+      const dateNmCol  = vpField('DateiName');
+      if (dateUrlCol) patchFields[dateUrlCol] = attachUrl;
+      if (dateNmCol)  patchFields[dateNmCol]  = attachName;
+
+      if (Object.keys(patchFields).length) {
+        try {
+          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${numericId}/fields`, patchFields);
+          console.log('[VP] Datei-Link patched:', attachUrl);
+        } catch(pe) {
+          // Try as hyperlink object
+          if (linkColName) {
+            try {
+              await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${numericId}/fields`,
+                {...patchFields, [linkColName]: {Url: attachUrl, Description: attachName}});
+            } catch(pe2) { console.warn('[VP] patch Datei-Link failed:', pe2.message); }
+          }
+        }
       }
-      toast(`✓ Version ${ver} – „${attachName}" als Anhang gespeichert`,'success');
+      toast(`✓ Version ${ver} – „${attachName}" gespeichert & Datei-Link gesetzt`,'success');
     }
 
     vpmFile = null;
@@ -2502,36 +2514,25 @@ function renderMainVpTree(item, entries) {
   const widget = document.createElement('div');
   widget.className = 'mv-ver-widget';
 
-  // ── Suggest next version number ────────────────────────────────────
-  let suggestedVer = 'v1.0';
-  if (entries && entries.length) {
-    const last = entries[0].fields || {};
-    const lastVer = last[vpField('VersionNr')] || last.VersionNr || '';
-    const m = lastVer.match(/v?(\d+)\.?(\d*)/i);
-    if (m) {
-      const maj = parseInt(m[1]||0);
-      const min = parseInt(m[2]||0);
-      suggestedVer = `v${maj}.${min+1}`;
-    }
-  }
+  // ── Auto-version from entry count ────────────────────────────────────
+  const existingCount = entries ? entries.length : 0;
+  const autoVer = `v1.${existingCount}`; // v1.0, v1.1, v1.2 ...
 
   // ── Add form ────────────────────────────────────────────────────────
   const form = document.createElement('div');
   form.className = 'mv-add-strip';
   form.innerHTML = `
-    <div class="mv-add-row">
-      <input class="mv-add-ver" type="text" placeholder="v1.0" value="${suggestedVer}" title="Versionsnummer" style="width:80px;"/>
+    <div class="mv-add-row" style="gap:8px;">
+      <span style="background:var(--navy);color:#fff;padding:5px 14px;border-radius:4px;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0;">${esc(autoVer)}</span>
       <button class="mv-upload-btn" style="flex:1;font-size:13px;padding:7px 16px;font-weight:700;">⬆ Version hochladen</button>
     </div>
     <div class="mv-add-err" style="font-size:11px;color:var(--red);display:none;"></div>`;
 
-  const verIn    = form.querySelector('.mv-add-ver');
-  const uploadBtn= form.querySelector('.mv-upload-btn');
-  const errEl    = form.querySelector('.mv-add-err');
+  const uploadBtn = form.querySelector('.mv-upload-btn');
+  const errEl     = form.querySelector('.mv-add-err');
 
-  // Upload button → VP upload modal, pass version number directly
   uploadBtn.addEventListener('click', () => {
-    openVpUploadModal(verIn.value.trim() || suggestedVer);
+    openVpUploadModal(autoVer);
   });
 
 
@@ -2568,39 +2569,35 @@ function renderMainVpTree(item, entries) {
       const dt   = f[vpField('Datum')]||f.Datum||f.Date||f.Created||it.createdDateTime||'';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
 
-      // File URL: check DateiUrl field + all SP Attachment URLs
+      // File URL: Datei-Link column is the primary source (set to SP attachment URL on upload)
       let dlUrl = '';
       let dlNm  = f[vpField('DateiName')]||f.DateiName||f.Dateiname||f.FileName||'';
 
-      // 1. Try explicit DateiUrl/AttachmentUrl fields first
-      const urlFieldKeys = [
-        vpField('DateiUrl'),'DateiUrl','AttachmentUrl','WebUrl','FileUrl',
-        'Datei_x002d_Link','DateiLink','Datei_x0020_Link','Link','URL','Datei'
-      ];
-      for (const key of urlFieldKeys) {
-        if (!key) continue;
-        const val = f[key];
-        if (!val) continue;
-        if (typeof val==='string' && val.startsWith('http')) { dlUrl=val; break; }
-        if (typeof val==='object' && val?.Url) { dlUrl=val.Url; if(!dlNm&&val.Description) dlNm=val.Description; break; }
+      // 1. Datei-Link column (= SP attachment URL stored on upload)
+      const linkCol = vpField('Dateilink');
+      if (linkCol && f[linkCol]) {
+        const lv = f[linkCol];
+        dlUrl = typeof lv==='object' ? (lv.Url||lv.url||'') : (typeof lv==='string' ? lv : '');
       }
-
-      // 2. Check AttachmentFiles fetched via SP REST (ServerRelativeUrl format)
-      if (!dlUrl && it.AttachmentFiles && it.AttachmentFiles.length) {
-        const att = it.AttachmentFiles[0];
-        if (att.ServerRelativeUrl) {
-          // Build absolute URL from site base
-          const siteBase = vpSiteWebUrl ? vpSiteWebUrl.replace(/\/sites\/[^/]+.*/i, '') + att.ServerRelativeUrl
-                                        : att.ServerRelativeUrl;
-          dlUrl = siteBase;
-          if (!dlNm) dlNm = att.FileName || '';
-        } else if (att.AbsoluteUri || att.absoluteUri) {
-          dlUrl = att.AbsoluteUri || att.absoluteUri;
-          if (!dlNm) dlNm = att.FileName || '';
+      // Try raw column name variants
+      if (!dlUrl) {
+        for (const k of ['Datei_x002d_Link','DateiLink','Datei_x0020_Link',
+                          vpField('DateiUrl'),'DateiUrl','AttachmentUrl','WebUrl']) {
+          if (!k) continue;
+          const v = f[k];
+          if (!v) continue;
+          if (typeof v==='string' && v.startsWith('http')) { dlUrl=v; break; }
+          if (typeof v==='object' && v?.Url) { dlUrl=v.Url; break; }
         }
       }
-
-      // 3. Scan ALL fields for any SharePoint http URL
+      // 2. SP AttachmentFiles fetched via REST
+      if (!dlUrl && it.AttachmentFiles && it.AttachmentFiles.length) {
+        const att = it.AttachmentFiles[0];
+        const base = vpSiteWebUrl ? vpSiteWebUrl.replace(/\/sites\/[^/]+.*/i,'') : '';
+        dlUrl = att.AbsoluteUri || (att.ServerRelativeUrl ? base+att.ServerRelativeUrl : '');
+        if (!dlNm) dlNm = att.FileName||'';
+      }
+      // 3. Any https SharePoint URL in any field
       if (!dlUrl) {
         for (const [k,v] of Object.entries(f)) {
           if (typeof v==='string' && v.startsWith('https://') &&
