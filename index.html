@@ -1158,6 +1158,7 @@ async function initVpList() {
       vpColumns[c.name] = c.displayName;
       vpColByDisplay[(c.displayName||'').toLowerCase().trim()] = c.name;
     });
+    resolveVpCols();
     console.log('VP list ready. siteWebUrl:', vpSiteWebUrl, 'listName:', vpListName);
     console.log('Columns:', Object.entries(vpColumns).map(([k,v])=>`${k}=${v}`).join(', '));
   } catch(e) {
@@ -1165,36 +1166,46 @@ async function initVpList() {
   }
 }
 
-// Map a logical field name to the actual internal column name in this list
-function vpField(logical) {
-  // Try exact match first
-  if (vpColumns[logical]) return logical;
-  // Common aliases
-  const aliases = {
-    'Title':        ['Title','Titel','Name'],
-    'VersionNr':    ['VersionNr','Version','Versionsnummer','VersionNumber'],
-    'Kommentar':    ['Kommentar','Comment','Beschreibung','Description','Änderung'],
-    'Status_':      ['Status_','Status','Zustand','State'],
-    'Datum':        ['Datum','Date','Zeitpunkt','EventDate'],
-    'Autor':        ['Autor','Author','Bearbeiter','Editor'],
-    // "Datei-Link" in SP is stored internally as Datei_x002d_Link (hyphen→_x002d_)
-    // Also try the "Hyperlink or Picture" field variants
-    'Dateilink':    ['Datei_x002d_Link','Datei_x0020_Link','DateiLink','Datei-Link','Dateilink',
-                     'FileLink','Link','URL','Datei','DateiUrl','Datei_Link'],
-    'DateiName':    ['DateiName','Dateiname','AnhangName','FileName','Datei_x0020_Name'],
-    'DateiUrl':     ['DateiUrl','AttachmentUrl','WebUrl','DateiLink','Datei_x002d_Link',
-                     'Datei_x0020_Link','DateiName'],
-    'FileItemId':   ['FileItemId','DriveItemId','ItemId','Datei_x002d_ID','DateiID'],
-    'DriveId':      ['DriveId','Drive_x002d_ID','DriveID'],
+// Resolved column map: logical key → actual internal SP column name
+// Populated by initVpList() after fetching list columns
+const VP_COLS = {}; // { VersionNr: 'Versionsnummer', DateiLink: 'Datei_x002d_Link', ... }
+
+function resolveVpCols() {
+  // Display names from the SP list (as seen in screenshots)
+  // Map our logical names to the SP display names, then resolve to internal names
+  const displayMap = {
+    VersionNr:  ['Versionsnummer','Version','VersionNr','VersionNumber'],
+    Kommentar:  ['Kommentar','Comment','Beschreibung'],
+    Status_:    ['Status','Zustand'],
+    Datum:      ['Datum','Date','Zeitpunkt'],
+    Autor:      ['Benutzer','Autor','Author','Geändert von'],  // "Benutzer" from screenshot
+    DateiLink:  ['Datei-Link','Dateilink','DateiLink','Link','URL','FileLink'],
+    DateiName:  ['Dateiname','DateiName','FileName'],
+    DateiUrl:   ['DateiUrl','Datei URL','FileUrl'],
+    FileItemId: ['FileItemId','ItemId','DriveItemId'],
   };
-  const options = aliases[logical] || [logical];
-  for (const opt of options) {
-    if (vpColumns[opt]) return opt;
-    // Try display name match
-    const found = vpColByDisplay[opt.toLowerCase()];
-    if (found && vpColumns[found]) return found;
+  for (const [logical, displayNames] of Object.entries(displayMap)) {
+    for (const dn of displayNames) {
+      const internalName = vpColByDisplay[dn.toLowerCase()];
+      if (internalName && vpColumns[internalName]) {
+        VP_COLS[logical] = internalName;
+        break;
+      }
+    }
   }
-  return null; // column doesn't exist in this list
+  console.log('[VP] Resolved columns:', JSON.stringify(VP_COLS));
+}
+
+// Simple lookup: returns the actual SP internal column name for a logical key
+function vpField(logical) {
+  // Prefer resolved map
+  if (VP_COLS[logical]) return VP_COLS[logical];
+  // Direct match (internal name used directly)
+  if (vpColumns[logical]) return logical;
+  // Display name match  
+  const found = vpColByDisplay[(logical||'').toLowerCase()];
+  if (found && vpColumns[found]) return found;
+  return null;
 }
 
 // SP read-only / system fields that must NEVER be set via Graph POST/PATCH
@@ -1635,6 +1646,7 @@ function mkTreeNode(item, depth=0) {
       </div>
     </div>
     ${isF?`<button class="tc-act-btn tc-pin-btn" style="font-size:12px;padding:3px 7px;">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
+    ${!isF?`<button class="tc-act-btn" style="font-size:11px;padding:3px 8px;" title="Herunterladen">⬇</button>`:''}
     ${!isF?`<button class="tc-act-btn" title="Versionen">Vers.</button>`:''}
     <button class="tc-del-btn" title="${isF?'Ordner':'Datei'} löschen">🗑</button>`;
   if(isF) {
@@ -1648,7 +1660,19 @@ function mkTreeNode(item, depth=0) {
     card.ondragleave=()=>card.classList.remove('drag-over');
     card.ondrop=e=>{e.preventDefault();card.classList.remove('drag-over');if(dragId&&dragId!==item.id)moveItem(dragId,item.id,item.name);};
   } else {
-    card.querySelector('.tc-act-btn')?.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
+    // Wire download button for original file
+    card.querySelectorAll('.tc-act-btn').forEach(btn=>{
+      if(btn.title==='Herunterladen') {
+        btn.addEventListener('click',e=>{
+          e.stopPropagation();
+          const url=item['@microsoft.graph.downloadUrl']||item.webUrl||'';
+          if(url) vpDownload(url.includes('?')?url+'&download=1':url+'?download=1', item.name);
+          else toast('Download-URL nicht verfügbar','info');
+        });
+      } else if(btn.title==='Versionen') {
+        btn.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
+      }
+    });
     card.draggable=true;
     card.ondragstart=e=>{dragId=item.id;card.classList.add('dragging');e.dataTransfer.effectAllowed='move';};
     card.ondragend=()=>{card.classList.remove('dragging');dragId=null;};
@@ -2001,17 +2025,17 @@ async function doVpUpload() {
     $id('vpm-err').style.display='block'; return;
   }
   if(!vpSiteId||!vpListId) {
-    $id('vpm-err').textContent='Liste nicht verbunden – bitte kurz warten.';
+    $id('vpm-err').textContent='Liste nicht verbunden – bitte warten.';
     $id('vpm-err').style.display='block';
     initVpList().then(()=>{ if(vpListId) $id('vpm-err').textContent='Bereit – nochmals klicken.'; });
     return;
   }
-  const ver    = ($id('vpm-ver').value||'').trim() || 'v1.0';
+  const ver    = ($id('vpm-ver').value||'').trim()||'v1.0';
   const komm   = ($id('vpm-comment').value||'').trim();
   const status = ($id('vpm-status').value||'').trim();
   $id('vpm-err').style.display='none';
   closeVpUploadModal();
-  toast(`📋 Erstelle Versionseintrag…`, 'info');
+  toast(`📋 Lade Version hoch…`, 'info');
 
   try {
     // ── Step 1: Get parent file webUrl ─────────────────────────────
@@ -2019,127 +2043,110 @@ async function doVpUpload() {
     const parentItemId = selected.id || '';
     if (!parentWebUrl && drive && parentItemId) {
       try {
-        const fresh = await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`);
-        parentWebUrl = fresh.webUrl || '';
+        const fr = await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`);
+        parentWebUrl = fr.webUrl || '';
       } catch {}
     }
 
     // ── Step 2: Upload version file to IT site via Graph ───────────
-    // Store in IT site default drive: /Versionsprotokoll/{listItemTitle}/{ver}_{filename}
-    const safeTitle = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
-    const safeVer   = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
-    const attachName= `${safeVer}_${vpmFile.name}`;
-    const uploadPath= `/Versionsprotokoll/${safeTitle}/${attachName}`;
-    const buf       = await vpmFile.arrayBuffer();
-
-    let fileWebUrl = '';
+    const safeTitle  = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
+    const safeVer    = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const attachName = `${safeVer}_${vpmFile.name}`;
+    const buf        = await vpmFile.arrayBuffer();
+    let fileWebUrl   = '';
     try {
-      const uploaded = await gPut(
-        `/sites/${vpSiteId}/drive/root:${uploadPath}:/content`,
+      const up = await gPut(
+        `/sites/${vpSiteId}/drive/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`,
         buf, vpmFile.type||'application/octet-stream'
       );
-      fileWebUrl = uploaded.webUrl || '';
-      console.log('[VP] file uploaded to IT site:', fileWebUrl);
-    } catch(uploadErr) {
-      console.warn('[VP] IT site upload failed:', uploadErr.message);
-      // Fallback: store in current drive if available
+      fileWebUrl = up.webUrl||'';
+      console.log('[VP] uploaded to IT site:', fileWebUrl);
+    } catch(e) {
+      console.warn('[VP] upload to IT site failed, trying current drive:', e.message);
       if (drive) {
         try {
           const fid = pathStack[pathStack.length-1]?.id||'root';
-          const fallbackUrl = fid==='root'
+          const url = fid==='root'
             ? `/drives/${drive.id}/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`
             : `/drives/${drive.id}/items/${fid}:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`;
-          const u2 = await gPut(fallbackUrl, buf, vpmFile.type||'application/octet-stream');
-          fileWebUrl = u2.webUrl || '';
-          console.log('[VP] fallback upload ok:', fileWebUrl);
+          const up2 = await gPut(url, buf, vpmFile.type||'application/octet-stream');
+          fileWebUrl = up2.webUrl||'';
         } catch(e2) { console.warn('[VP] fallback upload also failed:', e2.message); }
       }
     }
 
-    // ── Step 3: Build list item fields ────────────────────────────
-    const linkColName   = vpField('Dateilink');
-    const fileItemIdCol = vpField('FileItemId');
-    const verNrCol      = vpField('VersionNr');
-
+    // ── Step 3: Build list item fields using RESOLVED column names ──
+    // VP_COLS contains the actual SP internal names discovered at startup
     const fields = { Title: selected.name };
-    const meta = {
-      VersionNr:  ver,
-      Kommentar:  komm,
-      Status_:    status,
-      Datum:      new Date().toISOString(),
-      Autor:      account?.name||account?.username||'',
-      DateiName:  attachName,
-      DateiUrl:   fileWebUrl,
-      FileItemId: parentItemId,
-    };
-    for (const [lg,val] of Object.entries(meta)) {
-      if (!val) continue;
-      const col = vpField(lg);
-      if (col) fields[col] = val;
-    }
-    // Datei-Link = URL of the VERSION FILE (for open/download)
-    if (linkColName && fileWebUrl) fields[linkColName] = fileWebUrl;
-    if (fileItemIdCol) fields[fileItemIdCol] = parentItemId;
 
-    // ── Step 4: Create list item with progressive fallback ──────────
+    // Version number
+    if (VP_COLS.VersionNr)  fields[VP_COLS.VersionNr]  = ver;
+    // Comment
+    if (VP_COLS.Kommentar && komm)  fields[VP_COLS.Kommentar] = komm;
+    // Status
+    if (VP_COLS.Status_ && status)  fields[VP_COLS.Status_]   = status;
+    // Date
+    if (VP_COLS.Datum)      fields[VP_COLS.Datum]      = new Date().toISOString();
+    // Author
+    if (VP_COLS.Autor)      fields[VP_COLS.Autor]      = account?.name||account?.username||'';
+    // File name
+    if (VP_COLS.DateiName)  fields[VP_COLS.DateiName]  = attachName;
+    // File item ID (for filtering)
+    if (VP_COLS.FileItemId) fields[VP_COLS.FileItemId] = parentItemId;
+
+    // ── Datei-Link = URL of the uploaded version file ──────────────
+    // This is what the user sees when clicking Öffnen/Download
+    if (fileWebUrl && VP_COLS.DateiLink) {
+      fields[VP_COLS.DateiLink] = fileWebUrl;
+    }
+
+    console.log('[VP] POST fields:', JSON.stringify(fields));
+    console.log('[VP] Datei-Link col:', VP_COLS.DateiLink, '→', fileWebUrl);
+
+    // ── Step 4: Single POST – no fallbacks needed ───────────────────
     let newItem;
-    const postBodies = [
-      {fields},
-      {fields: {...fields, ...(linkColName&&fileWebUrl?{[linkColName]:{Url:fileWebUrl,Description:attachName}}:{})}},
-      {fields: {Title:selected.name, ...(verNrCol?{[verNrCol]:ver}:{}), ...(fileItemIdCol?{[fileItemIdCol]:parentItemId}:{})}},
-      {fields: {Title:selected.name}},
-    ];
-    for (const body of postBodies) {
-      try { newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, body); break; }
-      catch(e) { console.warn('[VP] POST failed:', e.message); }
+    try {
+      newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields});
+    } catch(postErr) {
+      console.warn('[VP] POST with all fields failed:', postErr.message);
+      // Retry with just Title + VersionNr (minimal)
+      const minimal = { Title: selected.name };
+      if (VP_COLS.VersionNr) minimal[VP_COLS.VersionNr] = ver;
+      if (VP_COLS.FileItemId) minimal[VP_COLS.FileItemId] = parentItemId;
+      newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields: minimal});
     }
     if (!newItem) throw new Error('Listeneintrag konnte nicht erstellt werden.');
 
-    // ── Step 5: ALWAYS patch Datei-Link after item creation ───────────
-    // We do this separately because Hyperlink columns can be tricky in POST
-    if (fileWebUrl) {
-      // Try all possible internal names for "Datei-Link" column
-      const linkCandidates = [
-        linkColName,
-        'Datei_x002d_Link',   // SP internal name for "Datei-Link" (hyphen encoded)
-        'DateiLink',
-        'Datei_x0020_Link',
-        'DateiUrl',
-        'Link',
-      ].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i); // unique
-
-      for (const col of linkCandidates) {
-        if (!vpColumns[col]) continue; // skip if column doesn't exist in list
+    // ── Step 5: PATCH Datei-Link separately (always) ───────────────
+    // Hyperlink columns sometimes fail in POST but work in PATCH
+    if (fileWebUrl && VP_COLS.DateiLink) {
+      try {
+        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
+          {[VP_COLS.DateiLink]: fileWebUrl});
+        console.log('[VP] Datei-Link PATCHed ✓:', fileWebUrl);
+      } catch(pe) {
+        // Try as SP hyperlink object
         try {
           await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
-            {[col]: fileWebUrl});
-          console.log('[VP] Datei-Link patched via column:', col, '→', fileWebUrl);
-          break;
-        } catch(pe) {
-          // Try as hyperlink object
-          try {
-            await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
-              {[col]: {Url: fileWebUrl, Description: attachName}});
-            console.log('[VP] Datei-Link patched as hyperlink object via:', col);
-            break;
-          } catch(pe2) {
-            console.warn('[VP] patch via', col, 'failed:', pe2.message);
-          }
+            {[VP_COLS.DateiLink]: {Url: fileWebUrl, Description: attachName}});
+          console.log('[VP] Datei-Link PATCHed as object ✓');
+        } catch(pe2) {
+          console.warn('[VP] Datei-Link PATCH failed:', pe2.message);
         }
       }
     }
 
-    const msg = fileWebUrl
-      ? `✓ Version ${ver} gespeichert – Datei-Link gesetzt`
-      : `✓ Version ${ver} gespeichert (ohne Dateianhang)`;
-    toast(msg, 'success');
+    toast(fileWebUrl
+      ? `✓ Version ${ver} gespeichert — Datei-Link gesetzt`
+      : `✓ Version ${ver} gespeichert`, 'success');
     vpmFile = null;
     if (selected) await loadVpEntries(selected);
   } catch(e) {
     toast('VP-Upload-Fehler: ' + e.message, 'error');
-    console.error('[VP] error:', e);
+    console.error('[VP]', e);
   }
 }
+
 
 
 function openVpUploadModal(prefilledVer='') {
@@ -2623,49 +2630,35 @@ function renderMainVpTree(item, entries) {
     entries.forEach((it, idx) => {
       const f    = it.fields||{};
 
-      const ver  = f[vpField('VersionNr')]||f.VersionNr||f.Version||'v?';
-      const komm = f[vpField('Kommentar')]||f.Kommentar||f.Comment||f.Description||'';
-      const stat = f[vpField('Status_')]||f.Status_||f.Status||'';
-      const autor= f[vpField('Autor')]||f.Autor||f.Author||'';
-      const dt   = f[vpField('Datum')]||f.Datum||f.Date||f.Created||it.createdDateTime||'';
+      // Use VP_COLS (resolved at startup) for direct column access
+      const ver  = (VP_COLS.VersionNr  && f[VP_COLS.VersionNr])  || f.VersionNr  || f.Versionsnummer || f.Version || 'v?';
+      const komm = (VP_COLS.Kommentar  && f[VP_COLS.Kommentar])  || f.Kommentar  || '';
+      const stat = (VP_COLS.Status_    && f[VP_COLS.Status_])    || f.Status_    || f.Status || '';
+      const autor= (VP_COLS.Autor      && f[VP_COLS.Autor])      || f.Autor      || f.Benutzer || '';
+      const dt   = (VP_COLS.Datum      && f[VP_COLS.Datum])      || f.Datum      || it.createdDateTime || '';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+      const dlNm = (VP_COLS.DateiName  && f[VP_COLS.DateiName])  || f.DateiName  || f.Dateiname || '';
 
-      // File URL: Datei-Link column is the primary source (set to SP attachment URL on upload)
-      let dlUrl = '';
-      let dlNm  = f[vpField('DateiName')]||f.DateiName||f.Dateiname||f.FileName||'';
-
-      // 1. Datei-Link column (= SP attachment URL stored on upload)
-      const linkCol = vpField('Dateilink');
-      if (linkCol && f[linkCol]) {
-        const lv = f[linkCol];
-        dlUrl = typeof lv==='object' ? (lv.Url||lv.url||'') : (typeof lv==='string' ? lv : '');
+      // Datei-Link = URL of the version file (set via VP_COLS.DateiLink)
+      let dlUrl  = '';
+      // 1. Use the resolved Datei-Link column directly
+      if (VP_COLS.DateiLink && f[VP_COLS.DateiLink]) {
+        const v = f[VP_COLS.DateiLink];
+        dlUrl = typeof v==='object' ? (v.Url||v.url||'') : String(v||'');
       }
-      // Try raw column name variants
-      if (!dlUrl) {
-        for (const k of ['Datei_x002d_Link','DateiLink','Datei_x0020_Link',
-                          vpField('DateiUrl'),'DateiUrl','AttachmentUrl','WebUrl']) {
-          if (!k) continue;
-          const v = f[k];
-          if (!v) continue;
-          if (typeof v==='string' && v.startsWith('http')) { dlUrl=v; break; }
-          if (typeof v==='object' && v?.Url) { dlUrl=v.Url; break; }
-        }
-      }
-      // 2. SP AttachmentFiles fetched via REST
-      if (!dlUrl && it.AttachmentFiles && it.AttachmentFiles.length) {
-        const att = it.AttachmentFiles[0];
-        const base = vpSiteWebUrl ? vpSiteWebUrl.replace(/\/sites\/[^/]+.*/i,'') : '';
-        dlUrl = att.AbsoluteUri || (att.ServerRelativeUrl ? base+att.ServerRelativeUrl : '');
-        if (!dlNm) dlNm = att.FileName||'';
-      }
-      // 3. Any https SharePoint URL in any field
+      // 2. Fallback: scan all fields for any https URL containing sharepoint.com
       if (!dlUrl) {
         for (const [k,v] of Object.entries(f)) {
           if (typeof v==='string' && v.startsWith('https://') &&
-              (v.includes('sharepoint.com')||v.includes('1drv')) &&
-              !k.toLowerCase().includes('site')) { dlUrl=v; break; }
+              v.includes('sharepoint.com') && !k.startsWith('_')) { dlUrl=v; break; }
           if (typeof v==='object' && v?.Url?.startsWith('https://')) { dlUrl=v.Url; break; }
         }
+      }
+      // 3. SP AttachmentFiles via REST fetch
+      if (!dlUrl && it.AttachmentFiles?.length) {
+        const att = it.AttachmentFiles[0];
+        dlUrl = att.AbsoluteUri || (att.ServerRelativeUrl
+          ? (vpSiteWebUrl.replace(/\/sites\/[^/]+.*/i,'')+att.ServerRelativeUrl) : '');
       }
 
       // No fading – all entries fully visible (only current gets green)
