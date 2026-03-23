@@ -531,96 +531,101 @@ main{flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;}
 @keyframes fadeOut{to{transform:translateX(110%);opacity:0;}}
 .toast.out{animation:fadeOut .25s ease forwards;}
 
-/* ═══ MAIN-VIEW INLINE VERSION TREE ══════════════════════════════════ */
-.mv-ver-overlay{
-  /* Sits inline in the document flow, directly after the selected tree node */
-  margin: 0 0 8px 28px;
-  display:block;
-}
-.mv-ver-tree{
+/* ═══ INLINE VERSION WIDGET ══════════════════════════════════════════ */
+.mv-ver-overlay{display:block;margin:0 0 8px 30px;}
+.mv-ver-widget{
   position:relative;
-  padding:10px 14px 10px 26px;
-  background:rgba(242,244,247,0.85);
-  border-left:2px solid var(--border2);
-  border-radius:0 var(--r-sm) var(--r-sm) 0;
-  backdrop-filter:blur(2px);
+  background:var(--surface);
+  border:1.5px solid var(--border2);
+  border-left:3px solid var(--blue);
+  border-radius:0 var(--r) var(--r) 0;
+  overflow:hidden;
+  box-shadow:var(--shadow-sm);
 }
-/* vertical trunk */
-.mv-ver-tree::before{
-  content:'';position:absolute;left:8px;top:12px;bottom:12px;
-  width:1.5px;background:linear-gradient(to bottom,var(--blue) 0%,rgba(192,210,240,0.2) 100%);
+/* Add form strip */
+.mv-add-strip{
+  background:var(--bg);border-bottom:1px solid var(--border);
+  padding:10px 14px;display:grid;gap:7px;
 }
-.mv-ver-label{
-  font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--text-dim);margin-bottom:8px;padding-left:4px;
+.mv-add-row{display:flex;gap:7px;align-items:center;}
+.mv-add-ver{width:72px;padding:6px 8px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:12px;font-weight:700;outline:none;transition:border-color .15s;background:#fff;}
+.mv-add-ver:focus{border-color:var(--red);}
+.mv-add-comment{flex:1;padding:6px 8px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:12px;outline:none;transition:border-color .15s;background:#fff;}
+.mv-add-comment:focus{border-color:var(--red);}
+.mv-add-status{
+  padding:6px 8px;border:1.5px solid var(--border2);border-radius:4px;
+  font-family:inherit;font-size:12px;outline:none;transition:border-color .15s;
+  background:#fff;cursor:pointer;min-width:160px;
 }
-.mv-ver-node{
-  position:relative;cursor:pointer;margin-bottom:6px;
-  transition:opacity .2s;
+.mv-add-status:focus{border-color:var(--red);}
+.mv-add-btn{
+  background:var(--red);border:none;color:#fff;padding:6px 13px;
+  border-radius:4px;font-family:inherit;font-size:11px;font-weight:700;
+  cursor:pointer;white-space:nowrap;transition:background .15s;flex-shrink:0;
 }
-/* dot connector */
-.mv-ver-node::before{
-  content:'';position:absolute;left:-20px;top:8px;
-  width:8px;height:8px;border-radius:50%;
-  background:var(--blue);border:1.5px solid rgba(242,244,247,0.9);
-  box-shadow:0 0 0 1.5px var(--blue);transition:all .15s;
+.mv-add-btn:hover{background:var(--red2);}
+.mv-upload-btn{
+  background:var(--navy);border:none;color:#fff;padding:6px 11px;
+  border-radius:4px;font-size:11px;font-weight:700;cursor:pointer;
+  white-space:nowrap;transition:background .15s;flex-shrink:0;
 }
-.mv-ver-node:hover::before{transform:scale(1.3);}
-.mv-ver-node.latest::before{background:var(--green);box-shadow:0 0 0 1.5px var(--green);}
-.mv-ver-node.faded-1{opacity:.72;}
-.mv-ver-node.faded-2{opacity:.48;}
-.mv-ver-node.faded-3{opacity:.28;}
-.mv-ver-card{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--r-sm);padding:6px 10px;
-  display:inline-block;min-width:120px;max-width:220px;
+.mv-upload-btn:hover{background:var(--navy3);}
+.mv-file-badge{
+  font-size:10px;color:var(--green);font-weight:600;
+  background:var(--green-bg);padding:2px 8px;border-radius:10px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;
+}
+/* Timeline */
+.mv-timeline{position:relative;padding:12px 14px 12px 28px;}
+.mv-timeline::before{
+  content:'';position:absolute;left:10px;top:8px;bottom:8px;
+  width:2px;background:linear-gradient(to bottom,var(--blue) 0%,rgba(192,210,240,.2) 100%);
+}
+.mv-empty{font-size:12px;color:var(--text-dim);padding:10px 14px 12px;line-height:1.6;}
+/* Version node */
+.mv-node{position:relative;margin-bottom:10px;display:flex;align-items:flex-start;gap:10px;}
+.mv-node::before{
+  content:'';position:absolute;left:-20px;top:9px;
+  width:10px;height:10px;border-radius:50%;
+  background:var(--blue);border:2.5px solid var(--surface);
+  box-shadow:0 0 0 2px var(--blue);flex-shrink:0;
+}
+.mv-node.latest::before{background:var(--green);box-shadow:0 0 0 2px var(--green);}
+.mv-node.faded-1{opacity:.72;}
+.mv-node.faded-2{opacity:.48;}
+.mv-node.faded-3{opacity:.28;}
+/* Card */
+.mv-card{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:7px 10px;flex:1;min-width:0;
   transition:box-shadow .12s,border-color .12s;
 }
-.mv-ver-node:hover .mv-ver-card{box-shadow:var(--shadow-sm);border-color:var(--border2);}
-.mv-ver-node.latest .mv-ver-card{border-color:rgba(22,163,74,.35);box-shadow:0 0 0 1px rgba(22,163,74,.12);}
-.mv-ver-ver{font-size:11px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
-.mv-ver-badge{font-size:8px;font-weight:700;background:var(--green-bg);color:var(--green);padding:1px 5px;border-radius:4px;}
-.mv-ver-meta{font-size:9px;color:var(--text-dim);margin-top:1px;line-height:1.5;}
-.mv-ver-comment{font-size:10px;color:var(--text-muted);margin-top:1px;font-style:italic;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;}
-.mv-ver-file{font-size:9px;color:var(--blue);margin-top:2px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;cursor:pointer;
-  display:flex;align-items:center;gap:3px;}
-.mv-ver-file:hover{text-decoration:underline;}
-  position:relative;margin-bottom:9px;cursor:pointer;
-  transition:opacity .15s;
+.mv-node:hover .mv-card{box-shadow:var(--shadow-sm);border-color:var(--border2);}
+.mv-node.latest .mv-card{background:rgba(22,163,74,.04);border-color:rgba(22,163,74,.3);}
+.mv-card-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;}
+.mv-ver-pill{font-size:11px;font-weight:700;background:var(--navy);color:#fff;padding:2px 8px;border-radius:5px;}
+.mv-node.latest .mv-ver-pill{background:var(--green);}
+.mv-badge-cur{font-size:8px;font-weight:700;background:var(--green-bg);color:var(--green);padding:1px 5px;border-radius:4px;}
+.mv-status-pill{font-size:9px;font-weight:700;padding:1px 7px;border-radius:10px;
+  background:var(--blue-bg);color:var(--blue);}
+.mv-status-pill.signed{background:rgba(22,163,74,.12);color:var(--green);}
+.mv-status-pill.partial{background:var(--amber-bg);color:var(--amber);}
+.mv-meta{font-size:10px;color:var(--text-dim);line-height:1.6;}
+.mv-comment{font-size:11px;color:var(--text-muted);font-style:italic;margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* Action row per entry */
+.mv-acts{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;}
+.mv-act{
+  font-size:10px;font-weight:600;padding:3px 9px;border-radius:4px;
+  border:1px solid var(--border);background:var(--surface);
+  color:var(--text-muted);cursor:pointer;transition:all .12s;white-space:nowrap;
 }
-/* timeline dot */
-.mv-ver-node::before{
-  content:'';position:absolute;left:-20px;top:8px;
-  width:9px;height:9px;border-radius:50%;
-  background:var(--blue);border:2px solid var(--bg);
-  box-shadow:0 0 0 1.5px var(--blue);
-  transition:all .15s;
-}
-.mv-ver-node:hover::before{transform:scale(1.3);}
-.mv-ver-node.latest::before{background:var(--green);box-shadow:0 0 0 1.5px var(--green);}
-/* faded older nodes */
-.mv-ver-node.faded-1{opacity:.75;}
-.mv-ver-node.faded-2{opacity:.5;}
-.mv-ver-node.faded-3{opacity:.3;}
-.mv-ver-card{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--r-sm);padding:6px 9px;
-  transition:box-shadow .12s,border-color .12s;
-  max-width:200px;
-}
-.mv-ver-node:hover .mv-ver-card{box-shadow:var(--shadow-sm);border-color:var(--border2);}
-.mv-ver-node.latest .mv-ver-card{border-color:rgba(22,163,74,.35);box-shadow:0 0 0 1px rgba(22,163,74,.12);}
-.mv-ver-ver{font-size:11px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:5px;}
-.mv-ver-badge{font-size:8px;font-weight:700;background:var(--green-bg);color:var(--green);padding:1px 5px;border-radius:4px;}
-.mv-ver-meta{font-size:9px;color:var(--text-dim);margin-top:2px;line-height:1.5;}
-.mv-ver-comment{font-size:10px;color:var(--text-muted);margin-top:2px;font-style:italic;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;}
-.mv-ver-file{font-size:9px;color:var(--blue);margin-top:3px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;cursor:pointer;}
-.mv-ver-file:hover{text-decoration:underline;}
-
+.mv-act:hover{border-color:var(--navy);color:var(--navy);}
+.mv-act.open{border-color:rgba(37,99,235,.3);color:var(--blue);background:var(--blue-bg);}
+.mv-act.open:hover{background:var(--blue);color:#fff;border-color:var(--blue);}
+.mv-act.dl{border-color:rgba(22,163,74,.3);color:var(--green);background:var(--green-bg);}
+.mv-act.dl:hover{background:var(--green);color:#fff;border-color:var(--green);}
+.mv-act.del:hover{background:var(--red);border-color:var(--red);color:#fff;}
 </style>
 </head>
 <body>
@@ -2439,12 +2444,13 @@ function bootSpinner(on){$id('boot-spinner').style.display=on?'block':'none';}
 
 // ══ MAIN-VIEW FADED VERSION TREE ════════════════════════════════════
 // Renders a faded version timeline alongside the selected file in the main pane
+// ── Inline VP widget state ─────────────────────────────────────────────
+let mvPendingFile = null; // file selected for next inline upload
+
 function renderMainVpTree(item, entries) {
-  // Remove any previous VP tree attached to any card
-  document.querySelectorAll('.mv-ver-overlay').forEach(e=>e.remove());
+  document.querySelectorAll('.mv-ver-overlay').forEach(e => e.remove());
   if (!item) return;
 
-  // Find the card in the current main view
   const card = document.querySelector(`.tree-card[data-id="${item.id}"]`)
              || document.querySelector(`.list-item[data-id="${item.id}"]`);
   if (!card) return;
@@ -2452,61 +2458,171 @@ function renderMainVpTree(item, entries) {
   const overlay = document.createElement('div');
   overlay.className = 'mv-ver-overlay';
 
-  const tree = document.createElement('div');
-  tree.className = 'mv-ver-tree';
+  const widget = document.createElement('div');
+  widget.className = 'mv-ver-widget';
 
-  if (entries === null) {
-    // Loading state
-    tree.innerHTML = `<div class="mv-ver-label">🗂 Versionen</div><div class="spinner sm" style="margin:8px auto;"></div>`;
-  } else if (!entries.length) {
-    tree.innerHTML = `<div class="mv-ver-label">🗂 Versionen</div><div style="font-size:11px;color:var(--text-dim);padding:4px 0;">Noch keine Einträge.</div>`;
-  } else {
-    tree.innerHTML = `<div class="mv-ver-label">🗂 ${entries.length} Versionen</div>`;
-    entries.forEach((it, idx)=>{
-      const f   = it.fields||{};
-      const ver = f[vpField('VersionNr')]||f.VersionNr||'v?';
-      const komm= f[vpField('Kommentar')]||f.Kommentar||'';
-      const status=f[vpField('Status_')]||f.Status||'';
-      const dlUrl = f[vpField('DateiUrl')]||f.DateiUrl||f.WebUrl||'';
-      const dlName= f[vpField('DateiName')]||f.DateiName||'';
-      const dt    = f.Datum||f.Created||it.createdDateTime||'';
-      const dtFmt = dt?new Date(dt).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
-      const fadeClass = idx===0?'latest':idx===1?'faded-1':idx===2?'faded-2':'faded-3';
-
-      const node=document.createElement('div');
-      node.className='mv-ver-node '+fadeClass;
-      node.innerHTML=`
-        <div class="mv-ver-card">
-          <div class="mv-ver-ver">
-            ${esc(ver)}
-            ${idx===0?'<span class="mv-ver-badge">Aktuell</span>':''}
-            ${status?`<span style="font-size:8px;color:var(--text-dim);margin-left:3px;">${esc(status)}</span>`:''}
-          </div>
-          <div class="mv-ver-meta">${dtFmt}</div>
-          ${komm?`<div class="mv-ver-comment">${esc(komm)}</div>`:''}
-          ${dlUrl?`<div class="mv-ver-file" data-url="${esc(dlUrl)}" data-name="${esc(dlName)}" title="${esc(dlName)}">📎 ${esc(dlName||'Datei öffnen')}</div>`:''}
-        </div>`;
-
-      node.addEventListener('click', ()=>openVersionPanel(item));
-      const fl=node.querySelector('.mv-ver-file');
-      if(fl) fl.addEventListener('click', e=>{
-        e.stopPropagation();
-        window.open(e.currentTarget.dataset.url,'_blank');
-      });
-      tree.appendChild(node);
-    });
+  // ── Suggest next version number ────────────────────────────────────
+  let suggestedVer = 'v1.0';
+  if (entries && entries.length) {
+    const last = entries[0].fields || {};
+    const lastVer = last[vpField('VersionNr')] || last.VersionNr || '';
+    const m = lastVer.match(/v?(\d+)\.?(\d*)/i);
+    if (m) {
+      const maj = parseInt(m[1]||0);
+      const min = parseInt(m[2]||0);
+      suggestedVer = `v${maj}.${min+1}`;
+    }
   }
 
-  overlay.appendChild(tree);
+  // ── Add form ────────────────────────────────────────────────────────
+  const form = document.createElement('div');
+  form.className = 'mv-add-strip';
+  form.innerHTML = `
+    <div class="mv-add-row">
+      <input class="mv-add-ver"     type="text" placeholder="v1.0"  value="${suggestedVer}" title="Versionsnummer"/>
+      <input class="mv-add-comment" type="text" placeholder="Was wurde geändert?"/>
+      <select class="mv-add-status">
+        <option value="">— Status —</option>
+        <option value="Entwurf">Entwurf</option>
+        <option value="Unterschrieben">Unterschrieben</option>
+        <option value="Teilunterschrieben">Teilunterschrieben</option>
+      </select>
+    </div>
+    <div class="mv-add-row">
+      <button class="mv-upload-btn" title="Datei hochladen + Eintrag anlegen">⬆ Version</button>
+      <span class="mv-file-badge" style="display:none;"></span>
+      <button class="mv-add-btn">✓ Eintragen</button>
+    </div>
+    <div class="mv-add-err" style="font-size:11px;color:var(--red);display:none;"></div>`;
 
-  // Insert overlay AFTER the card's parent row (.tree-row-wrap or list-item)
+  const verIn    = form.querySelector('.mv-add-ver');
+  const commIn   = form.querySelector('.mv-add-comment');
+  const statSel  = form.querySelector('.mv-add-status');
+  const uploadBtn= form.querySelector('.mv-upload-btn');
+  const fileBadge= form.querySelector('.mv-file-badge');
+  const addBtn   = form.querySelector('.mv-add-btn');
+  const errEl    = form.querySelector('.mv-add-err');
+
+  // Upload button → VP upload modal
+  uploadBtn.addEventListener('click', () => {
+    // Pre-fill the modal with current form values
+    openVpUploadModal();
+    setTimeout(()=>{
+      const mv = $id('vpm-ver');   if(mv) mv.value = verIn.value;
+      const mc = $id('vpm-comment'); if(mc) mc.value = commIn.value;
+      const ms = $id('vpm-status');  if(ms) ms.value = statSel.value;
+    }, 50);
+  });
+
+  // Text-only entry
+  addBtn.addEventListener('click', async () => {
+    const ver = verIn.value.trim();
+    if (!ver) { errEl.textContent='Versionsnummer eingeben'; errEl.style.display='block'; return; }
+    errEl.style.display='none';
+    if (!vpSiteId||!vpListId) { toast('Liste nicht verbunden','error'); return; }
+    addBtn.disabled=true; addBtn.textContent='…';
+    const rawFields = {
+      Title:     item.name,
+      Dateilink: item.webUrl||'',
+      VersionNr: ver,
+      Kommentar: commIn.value.trim(),
+      Status_:   statSel.value,
+      Datum:     new Date().toISOString(),
+      Autor:     account?.name||account?.username||''
+    };
+    const fields = buildVpFields(rawFields);
+    if (!fields.Title) fields.Title = item.name;
+    try {
+      await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields});
+      verIn.value=''; commIn.value=''; statSel.value='';
+      toast(`Eintrag „${ver}" gespeichert ✓`,'success');
+      renderMainVpTree(item, null); // show loading
+      await loadVpEntries(item);   // reload
+    } catch(e) {
+      toast('Fehler: '+e.message,'error');
+    } finally { addBtn.disabled=false; addBtn.textContent='✓ Eintragen'; }
+  });
+
+  widget.appendChild(form);
+
+  // ── Timeline ──────────────────────────────────────────────────────
+  if (entries === null) {
+    // Loading
+    const tl = document.createElement('div');
+    tl.className='mv-timeline';
+    tl.innerHTML='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;"><div class="spinner sm"></div><span style="font-size:11px;color:var(--text-dim);">Lade Versionen…</span></div>';
+    widget.appendChild(tl);
+  } else if (!entries.length) {
+    const em = document.createElement('div');
+    em.className='mv-empty';
+    em.innerHTML='Noch keine Einträge.<br><small style="color:var(--text-dim);">Tipp: Beim Eintragen wird „Datei-Link" automatisch gesetzt.</small>';
+    widget.appendChild(em);
+  } else {
+    const tl = document.createElement('div');
+    tl.className = 'mv-timeline';
+    tl.innerHTML = `<div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px;">🗂 ${entries.length} Version${entries.length!==1?'en':''}</div>`;
+
+    entries.forEach((it, idx) => {
+      const f    = it.fields||{};
+      const ver  = f[vpField('VersionNr')]||f.VersionNr||'v?';
+      const komm = f[vpField('Kommentar')]||f.Kommentar||'';
+      const stat = f[vpField('Status_')]||f.Status||'';
+      const dlUrl= f[vpField('DateiUrl')]||f.DateiUrl||f.WebUrl||'';
+      const dlNm = f[vpField('DateiName')]||f.DateiName||'';
+      const dt   = f.Datum||f.Created||it.createdDateTime||'';
+      const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+      const autor= f[vpField('Autor')]||f.Autor||'';
+      const fadeClass = idx===0?'latest':idx===1?'faded-1':idx===2?'faded-2':'faded-3';
+
+      const statClass = stat.toLowerCase().includes('unterschrieben') && !stat.toLowerCase().includes('teil') ? 'signed'
+                      : stat.toLowerCase().includes('teil') ? 'partial' : '';
+
+      const node = document.createElement('div');
+      node.className = 'mv-node ' + fadeClass;
+      node.innerHTML = `
+        <div class="mv-card">
+          <div class="mv-card-head">
+            <span class="mv-ver-pill">${esc(ver)}</span>
+            ${idx===0?'<span class="mv-badge-cur">✓ Aktuell</span>':''}
+            ${stat?`<span class="mv-status-pill ${statClass}">${esc(stat)}</span>`:''}
+          </div>
+          <div class="mv-meta">${dtFmt}${autor?' · '+esc(autor):''}</div>
+          ${komm?`<div class="mv-comment">${esc(komm)}</div>`:''}
+          <div class="mv-acts">
+            ${dlUrl?`<button class="mv-act open">↗ Öffnen</button>`:''}
+            ${dlUrl?`<button class="mv-act dl">⬇ Download</button>`:''}
+            <button class="mv-act del">🗑</button>
+          </div>
+        </div>`;
+
+      if(dlUrl) {
+        node.querySelector('.mv-act.open')?.addEventListener('click', e=>{ e.stopPropagation(); window.open(dlUrl,'_blank'); });
+        node.querySelector('.mv-act.dl')?.addEventListener('click', e=>{ e.stopPropagation(); vpDownload(dlUrl, dlNm||ver+'_'+item.name); });
+      }
+      node.querySelector('.mv-act.del')?.addEventListener('click', e=>{
+        e.stopPropagation();
+        if(confirm(`Eintrag „${ver}" löschen?`)) {
+          deleteVpEntry(it.id).then(()=>loadVpEntries(item).then(()=>{}));
+        }
+      });
+
+      tl.appendChild(node);
+    });
+    widget.appendChild(tl);
+  }
+
+  overlay.appendChild(widget);
   const rowWrap = card.closest('.tree-row-wrap') || card.closest('.tree-node') || card;
   const parent  = rowWrap.parentNode;
   parent.insertBefore(overlay, rowWrap.nextSibling);
+
+  // Focus version input
+  setTimeout(()=>widget.querySelector('.mv-add-ver')?.focus(), 80);
 }
 
 function clearMainVpTree() {
   document.querySelectorAll('.mv-ver-overlay').forEach(e=>e.remove());
+  mvPendingFile = null;
 }
 
 initApp();
