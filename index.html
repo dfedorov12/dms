@@ -1937,12 +1937,12 @@ async function doVpUpload() {
     $id('vpm-err').style.display='block'; return;
   }
   if(!vpSiteId||!vpListId) {
-    $id('vpm-err').textContent='Versionsprotokoll-Liste nicht verbunden. Bitte kurz warten und erneut versuchen.';
+    $id('vpm-err').textContent='Liste nicht verbunden – bitte kurz warten.';
     $id('vpm-err').style.display='block';
-    initVpList().then(()=>{ if(vpListId) $id('vpm-err').textContent='Bereit – bitte nochmals klicken.'; });
+    initVpList().then(()=>{ if(vpListId) $id('vpm-err').textContent='Bereit – nochmals klicken.'; });
     return;
   }
-  const ver    =($id('vpm-ver').value||'').trim()||'v?';
+  const ver    =($id('vpm-ver').value||'').trim()||'v1.0';
   const komm   =($id('vpm-comment').value||'').trim();
   const status =($id('vpm-status').value||'').trim();
   $id('vpm-err').style.display='none';
@@ -1950,7 +1950,7 @@ async function doVpUpload() {
   toast(`⬆ Lade „${vpmFile.name}" hoch…`,'info');
 
   try {
-    // 1. Upload version file into _Versionen/{selectedFile}/{ver}_{filename}
+    // 1. Upload file to _Versionen/{selectedFile}/{ver}_{filename}
     const safeVer  = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
     const destName = `${safeVer}_${vpmFile.name}`;
     const fid      = pathStack[pathStack.length-1]?.id||'root';
@@ -1962,43 +1962,80 @@ async function doVpUpload() {
     const uploaded = await gPut(uploadUrl, buf, vpmFile.type||'application/octet-stream');
     const dlUrl    = uploaded['@microsoft.graph.downloadUrl']||'';
     const webUrl   = uploaded.webUrl||'';
+    const fileUrl  = dlUrl||webUrl;
+    const parentUrl= selected.webUrl||'';
 
-    // 2. Build the parent file's SharePoint URL for the "Datei-Link" join key
-    const parentUrl = selected.webUrl || '';
+    // 2. Find the Datei-Link column internal name from the list
+    const linkColName = vpField('Dateilink');
 
-    // 3. Build fields using ONLY columns that actually exist in the list
-    const rawFields = {
-      Title:     selected.name,
-      Dateilink: parentUrl,        // join key: full SP URL of the versioned file
-      VersionNr: ver,
-      Kommentar: komm,
-      Status_:   status,
+    // 3. Build fields – only use columns that exist, handle Hyperlink type correctly
+    const fields = {};
+    fields['Title'] = selected.name;
+
+    // Map each logical field to its real SP column name
+    const mappings = {
+      VersionNr: ver, Kommentar: komm, Status_: status,
       Datum:     new Date().toISOString(),
       Autor:     account?.name||account?.username||'',
       DateiName: destName,
-      DateiUrl:  dlUrl||webUrl,
+      DateiUrl:  fileUrl,    // plain text URL field
     };
-
-    const fields = buildVpFields(rawFields);
-    if (!fields.Title) fields.Title = selected.name;
-
-    // If Dateilink column exists but wasn't mapped, try to set it directly
-    // Look for any column whose displayName contains "datei" and "link"
-    const directLinkCol = Object.keys(vpColumns).find(k=>{
-      const dn=(vpColumns[k]||'').toLowerCase();
-      return (dn.includes('datei')&&dn.includes('link')) || dn==='datei-link';
-    });
-    if(directLinkCol && !fields[directLinkCol]) {
-      // SP Hyperlink fields need {Url, Description} format
-      fields[directLinkCol] = parentUrl;
+    for (const [logical, val] of Object.entries(mappings)) {
+      if (!val) continue;
+      const col = vpField(logical);
+      if (col) fields[col] = val;
     }
 
-    console.log('[VP POST] fields:', JSON.stringify(fields));
-    await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields});
+    // Datei-Link: try as plain text first; SP Hyperlink fields may need {Url,Description}
+    if (linkColName && parentUrl) {
+      // Try plain string first – if that's what the column expects
+      fields[linkColName] = parentUrl;
+    }
 
-    toast(`„${destName}" hochgeladen & Eintrag „${ver}" angelegt ✓`,'success');
-    vpmFile=null;
-    if(selected) await loadVpEntries(selected);
+    console.log('[VP POST] columns available:', Object.keys(vpColumns).join(', '));
+    console.log('[VP POST] sending fields:', JSON.stringify(fields));
+
+    // 4. POST with progressive fallback strategy
+    let posted = false;
+    const attempts = [
+      // Attempt 1: all fields, Datei-Link as plain string
+      () => gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields}),
+      // Attempt 2: all fields, Datei-Link as Hyperlink object
+      () => {
+        const f2 = {...fields};
+        if(linkColName && parentUrl) f2[linkColName] = {Url: parentUrl, Description: selected.name};
+        return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields: f2});
+      },
+      // Attempt 3: minimal – only Title + version fields (no URL fields)
+      () => {
+        const fMin = {Title: selected.name};
+        ['VersionNr','Kommentar','Status_','DateiName'].forEach(lg=>{
+          const col=vpField(lg); const val=mappings[lg];
+          if(col&&val) fMin[col]=val;
+        });
+        return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields: fMin});
+      },
+      // Attempt 4: absolute minimal – just Title
+      () => gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields:{Title:`${selected.name} | ${ver}`}}),
+    ];
+
+    for (let i=0; i<attempts.length; i++) {
+      try {
+        await attempts[i]();
+        posted = true;
+        console.log(`[VP POST] success on attempt ${i+1}`);
+        break;
+      } catch(err) {
+        console.warn(`[VP POST] attempt ${i+1} failed:`, err.message);
+        if (i === attempts.length-1) throw err;
+      }
+    }
+
+    if (posted) {
+      toast(`„${destName}" ✓ hochgeladen & Eintrag angelegt`,'success');
+      vpmFile = null;
+      if(selected) await loadVpEntries(selected);
+    }
   } catch(e) {
     toast('VP-Upload-Fehler: '+e.message,'error');
   }
@@ -2460,9 +2497,13 @@ function renderMainVpTree(item, entries) {
     errEl.style.display='none';
     if (!vpSiteId||!vpListId) { toast('Liste nicht verbunden','error'); return; }
     addBtn.disabled=true; addBtn.textContent='…';
+
+    const linkCol  = vpField('Dateilink');
+    const parentUrl= item.webUrl||'';
+
+    // Build base fields without the Hyperlink column
     const rawFields = {
       Title:     item.name,
-      Dateilink: item.webUrl||'',
       VersionNr: ver,
       Kommentar: commIn.value.trim(),
       Status_:   statSel.value,
@@ -2471,15 +2512,30 @@ function renderMainVpTree(item, entries) {
     };
     const fields = buildVpFields(rawFields);
     if (!fields.Title) fields.Title = item.name;
-    try {
-      await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields});
+
+    // Hyperlink field: try plain string, then object, then skip
+    const attempts = [
+      ()=>{ if(linkCol&&parentUrl) fields[linkCol]=parentUrl;
+            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields}); },
+      ()=>{ const f2={...fields};
+            if(linkCol&&parentUrl) f2[linkCol]={Url:parentUrl,Description:item.name};
+            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:f2}); },
+      ()=>{ const fMin={Title:item.name};
+            ['VersionNr','Kommentar','Status_'].forEach(lg=>{const c=vpField(lg);if(c&&rawFields[lg])fMin[c]=rawFields[lg];});
+            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:fMin}); },
+    ];
+    let ok=false;
+    for(let i=0;i<attempts.length;i++){
+      try{ await attempts[i](); ok=true; break; }
+      catch(e){ console.warn(`addEntry attempt ${i+1}:`,e.message); if(i===attempts.length-1) throw e; }
+    }
+    if(ok){
       verIn.value=''; commIn.value=''; statSel.value='';
       toast(`Eintrag „${ver}" gespeichert ✓`,'success');
-      renderMainVpTree(item, null); // show loading
-      await loadVpEntries(item);   // reload
-    } catch(e) {
-      toast('Fehler: '+e.message,'error');
-    } finally { addBtn.disabled=false; addBtn.textContent='✓ Eintragen'; }
+      renderMainVpTree(item, null);
+      await loadVpEntries(item);
+    }
+    addBtn.disabled=false; addBtn.textContent='✓ Eintragen';
   });
 
   widget.appendChild(form);
@@ -2503,16 +2559,40 @@ function renderMainVpTree(item, entries) {
 
     entries.forEach((it, idx) => {
       const f    = it.fields||{};
-      const ver  = f[vpField('VersionNr')]||f.VersionNr||'v?';
-      const komm = f[vpField('Kommentar')]||f.Kommentar||'';
-      const stat = f[vpField('Status_')]||f.Status||'';
-      const dlUrl= f[vpField('DateiUrl')]||f.DateiUrl||f.WebUrl||'';
-      const dlNm = f[vpField('DateiName')]||f.DateiName||'';
-      const dt   = f.Datum||f.Created||it.createdDateTime||'';
-      const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
-      const autor= f[vpField('Autor')]||f.Autor||'';
-      const fadeClass = idx===0?'latest':idx===1?'faded-1':idx===2?'faded-2':'faded-3';
 
+      // Extract version metadata with fallbacks
+      const ver  = f[vpField('VersionNr')]||f.VersionNr||f.Version||'v?';
+      const komm = f[vpField('Kommentar')]||f.Kommentar||f.Comment||f.Description||'';
+      const stat = f[vpField('Status_')]||f.Status_||f.Status||'';
+      const autor= f[vpField('Autor')]||f.Autor||f.Author||'';
+      const dt   = f[vpField('Datum')]||f.Datum||f.Date||f.Created||it.createdDateTime||'';
+      const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+
+      // File URL: scan every possible field name and handle SP Hyperlink {Url, Description} objects
+      let dlUrl = '';
+      let dlNm  = f[vpField('DateiName')]||f.DateiName||f.Dateiname||f.FileName||'';
+      const urlFields = [
+        vpField('DateiUrl'), 'DateiUrl','AttachmentUrl','WebUrl','FileUrl',
+        'Datei_x002d_Link','DateiLink','Datei_x0020_Link','Link','URL','Datei'
+      ];
+      for (const key of urlFields) {
+        if (!key) continue;
+        const val = f[key];
+        if (!val) continue;
+        if (typeof val === 'string' && val.startsWith('http')) { dlUrl=val; break; }
+        if (typeof val === 'object' && val.Url) { dlUrl=val.Url; if(!dlNm&&val.Description) dlNm=val.Description; break; }
+      }
+      // Also scan ALL fields for any http URL we might have missed
+      if (!dlUrl) {
+        for (const [k,v] of Object.entries(f)) {
+          if (typeof v==='string' && v.startsWith('https://') && v.includes('sharepoint.com') && !k.toLowerCase().includes('site')) {
+            dlUrl=v; break;
+          }
+          if (typeof v==='object' && v?.Url?.startsWith('http')) { dlUrl=v.Url; break; }
+        }
+      }
+
+      const fadeClass = idx===0?'latest':idx===1?'faded-1':idx===2?'faded-2':'faded-3';
       const statClass = stat.toLowerCase().includes('unterschrieben') && !stat.toLowerCase().includes('teil') ? 'signed'
                       : stat.toLowerCase().includes('teil') ? 'partial' : '';
 
@@ -2525,11 +2605,11 @@ function renderMainVpTree(item, entries) {
             ${idx===0?'<span class="mv-badge-cur">✓ Aktuell</span>':''}
             ${stat?`<span class="mv-status-pill ${statClass}">${esc(stat)}</span>`:''}
           </div>
-          <div class="mv-meta">${dtFmt}${autor?' · '+esc(autor):''}</div>
+          <div class="mv-meta">${dtFmt}${autor?' · '+esc(autor.split(' ')[0]):''}</div>
           ${komm?`<div class="mv-comment">${esc(komm)}</div>`:''}
           <div class="mv-acts">
-            ${dlUrl?`<button class="mv-act open">↗ Öffnen</button>`:''}
-            ${dlUrl?`<button class="mv-act dl">⬇ Download</button>`:''}
+            <button class="mv-act open" ${!dlUrl?'style="opacity:.35;pointer-events:none;"':''}>↗ Öffnen</button>
+            <button class="mv-act dl"   ${!dlUrl?'style="opacity:.35;pointer-events:none;"':''}>⬇ Download</button>
             <button class="mv-act del">🗑</button>
           </div>
         </div>`;
