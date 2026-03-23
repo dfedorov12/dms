@@ -1663,11 +1663,21 @@ function mkTreeNode(item, depth=0) {
     // Wire download button for original file
     card.querySelectorAll('.tc-act-btn').forEach(btn=>{
       if(btn.title==='Herunterladen') {
-        btn.addEventListener('click',e=>{
+        btn.addEventListener('click', async e=>{
           e.stopPropagation();
-          const url=item['@microsoft.graph.downloadUrl']||item.webUrl||'';
-          if(url) vpDownload(url.includes('?')?url+'&download=1':url+'?download=1', item.name);
-          else toast('Download-URL nicht verfügbar','info');
+          // Get fresh download URL from Graph (webUrl doesn't force download)
+          try {
+            const fresh = await gGet(`/drives/${drive.id}/items/${item.id}?$select=id,@microsoft.graph.downloadUrl,name`);
+            const dlUrl = fresh['@microsoft.graph.downloadUrl'];
+            if (dlUrl) {
+              vpDownload(dlUrl, item.name);
+            } else {
+              // Fallback to webUrl with download param
+              vpDownload(item.webUrl, item.name);
+            }
+          } catch {
+            vpDownload(item.webUrl, item.name);
+          }
         });
       } else if(btn.title==='Versionen') {
         btn.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
@@ -2075,63 +2085,50 @@ async function doVpUpload() {
       }
     }
 
-    // ── Step 3: Build list item fields using RESOLVED column names ──
-    // VP_COLS contains the actual SP internal names discovered at startup
-    const fields = { Title: selected.name };
-
-    // Version number
-    if (VP_COLS.VersionNr)  fields[VP_COLS.VersionNr]  = ver;
-    // Comment
-    if (VP_COLS.Kommentar && komm)  fields[VP_COLS.Kommentar] = komm;
-    // Status
-    if (VP_COLS.Status_ && status)  fields[VP_COLS.Status_]   = status;
-    // Date
-    if (VP_COLS.Datum)      fields[VP_COLS.Datum]      = new Date().toISOString();
-    // Author
-    if (VP_COLS.Autor)      fields[VP_COLS.Autor]      = account?.name||account?.username||'';
-    // File name
-    if (VP_COLS.DateiName)  fields[VP_COLS.DateiName]  = attachName;
-    // File item ID (for filtering)
-    if (VP_COLS.FileItemId) fields[VP_COLS.FileItemId] = parentItemId;
-
-    // ── Datei-Link = URL of the uploaded version file ──────────────
-    // This is what the user sees when clicking Öffnen/Download
-    if (fileWebUrl && VP_COLS.DateiLink) {
-      fields[VP_COLS.DateiLink] = fileWebUrl;
-    }
-
-    console.log('[VP] POST fields:', JSON.stringify(fields));
-    console.log('[VP] Datei-Link col:', VP_COLS.DateiLink, '→', fileWebUrl);
-
-    // ── Step 4: Single POST – no fallbacks needed ───────────────────
+    // ── Step 3: POST only Title (safest, always works) ─────────────
     let newItem;
     try {
-      newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields});
-    } catch(postErr) {
-      console.warn('[VP] POST with all fields failed:', postErr.message);
-      // Retry with just Title + VersionNr (minimal)
-      const minimal = { Title: selected.name };
-      if (VP_COLS.VersionNr) minimal[VP_COLS.VersionNr] = ver;
-      if (VP_COLS.FileItemId) minimal[VP_COLS.FileItemId] = parentItemId;
-      newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields: minimal});
+      newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,
+        {fields: {Title: selected.name}});
+    } catch(e) {
+      throw new Error('Liste nicht erreichbar: ' + e.message);
     }
-    if (!newItem) throw new Error('Listeneintrag konnte nicht erstellt werden.');
+    const itemId = newItem.id;
+    console.log('[VP] item created, id:', itemId);
 
-    // ── Step 5: PATCH Datei-Link separately (always) ───────────────
-    // Hyperlink columns sometimes fail in POST but work in PATCH
+    // ── Step 4: PATCH each field individually (ignore errors per field) ─
+    // This way one wrong field type never blocks everything
+    const patches = [];
+    if (VP_COLS.VersionNr)  patches.push([VP_COLS.VersionNr,  ver]);
+    if (VP_COLS.Kommentar && komm) patches.push([VP_COLS.Kommentar, komm]);
+    if (VP_COLS.Status_ && status) patches.push([VP_COLS.Status_,   status]);
+    if (VP_COLS.DateiName)  patches.push([VP_COLS.DateiName,  attachName]);
+    if (VP_COLS.FileItemId) patches.push([VP_COLS.FileItemId, parentItemId]);
+    // Datum: SP wants ISO string for DateTime columns
+    if (VP_COLS.Datum) patches.push([VP_COLS.Datum, new Date().toISOString()]);
+
+    // Datei-Link (Hyperlink column): try plain string, then object
     if (fileWebUrl && VP_COLS.DateiLink) {
+      patches.push([VP_COLS.DateiLink, fileWebUrl]);
+    }
+
+    for (const [col, val] of patches) {
       try {
-        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
-          {[VP_COLS.DateiLink]: fileWebUrl});
-        console.log('[VP] Datei-Link PATCHed ✓:', fileWebUrl);
+        await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,
+          {[col]: val});
+        console.log('[VP] patched', col, '✓');
       } catch(pe) {
-        // Try as SP hyperlink object
-        try {
-          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${newItem.id}/fields`,
-            {[VP_COLS.DateiLink]: {Url: fileWebUrl, Description: attachName}});
-          console.log('[VP] Datei-Link PATCHed as object ✓');
-        } catch(pe2) {
-          console.warn('[VP] Datei-Link PATCH failed:', pe2.message);
+        // For Datei-Link, try as hyperlink object
+        if (col === VP_COLS.DateiLink) {
+          try {
+            await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,
+              {[col]: {Url: val, Description: attachName}});
+            console.log('[VP] patched', col, 'as hyperlink ✓');
+          } catch(pe2) {
+            console.warn('[VP] could not patch', col, pe2.message);
+          }
+        } else {
+          console.warn('[VP] skipped field', col, pe.message);
         }
       }
     }
@@ -2201,16 +2198,35 @@ async function vpAttachFile(itemId) {
 
 
 function vpDownload(url, name) {
-  if(!url){toast('Keine Datei verknüpft','info');return;}
-  // Force download: fetch as blob and trigger save dialog
-  // Fallback: open with download hint in URL
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name || 'download';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(()=>document.body.removeChild(a), 200);
+  if (!url) { toast('Keine Download-URL','info'); return; }
+  // For SharePoint URLs: fetch via Graph download URL or use hidden anchor
+  // First try: get a direct download URL from Graph if it's a webUrl
+  const filename = name || 'download';
+  // Use fetch→blob approach which works cross-origin with Bearer token
+  getToken().then(token => {
+    toast('⬇ Download läuft…','info');
+    fetch(url, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => {
+        if (!r.ok) throw new Error(r.status);
+        return r.blob();
+      })
+      .then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 1000);
+      })
+      .catch(e => {
+        // Fallback: open in new tab with download hint
+        console.warn('Blob download failed:', e.message, '- falling back to window.open');
+        window.open(url.includes('?') ? url+'&download=1' : url+'?download=1', '_blank');
+      });
+  }).catch(() => {
+    window.open(url.includes('?') ? url+'&download=1' : url+'?download=1', '_blank');
+  });
 }
 
 // Form-based file drop (for add form drop zone)
@@ -2704,24 +2720,13 @@ function renderMainVpTree(item, entries) {
       // Always wire open/download regardless of dlUrl state
       node.querySelector('.mv-act.open')?.addEventListener('click', e=>{
         e.stopPropagation();
-        if (dlUrl) {
-          window.open(dlUrl,'_blank');
-        } else {
-          toast('Keine Datei-URL – prüfe ob die Version hochgeladen wurde.','info');
-          console.log('[VP open] entry fields:', JSON.stringify(f));
-        }
+        if (dlUrl) window.open(dlUrl,'_blank');
+        else toast('Keine URL – Version wurde möglicherweise nicht korrekt gespeichert.','info');
       });
       node.querySelector('.mv-act.dl')?.addEventListener('click', e=>{
         e.stopPropagation();
-        if (dlUrl) {
-          // For SharePoint webUrl: append download=1 to force download dialog
-          const downloadUrl = dlUrl.includes('?')
-            ? dlUrl + '&download=1'
-            : dlUrl + '?download=1';
-          vpDownload(downloadUrl, dlNm||ver+'_'+item.name);
-        } else {
-          toast('Keine Datei-URL gefunden.','info');
-        }
+        if (dlUrl) vpDownload(dlUrl, dlNm||ver+'_'+item.name);
+        else toast('Keine Download-URL.','info');
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
