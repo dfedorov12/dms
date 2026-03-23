@@ -2057,18 +2057,31 @@ async function doVpUpload() {
   if(!vpSiteId||!vpListId) {
     $id('vpm-err').textContent='Liste nicht verbunden – bitte warten.';
     $id('vpm-err').style.display='block';
-    initVpList().then(()=>{ if(vpListId) $id('vpm-err').textContent='Bereit – nochmals klicken.'; });
-    return;
+    await initVpList();  // wait for it!
+    if(!vpSiteId||!vpListId) {
+      $id('vpm-err').textContent='Liste konnte nicht verbunden werden.';
+      return;
+    }
   }
   const ver    = ($id('vpm-ver').value||'').trim()||'v1.0';
   const komm   = ($id('vpm-comment').value||'').trim();
   const status = ($id('vpm-status').value||'').trim();
   $id('vpm-err').style.display='none';
   closeVpUploadModal();
-  toast(`📋 Lade Version hoch…`, 'info');
+
+  // Debug log visible in UI
+  const dbg = [];
+  const log = (...args) => { const s=args.join(' '); console.log(s); dbg.push(s); };
+
+  log('=== VP UPLOAD DEBUG ===');
+  log('ver:', ver, '| vpSiteId:', vpSiteId?.substring(0,20), '| vpListId:', vpListId?.substring(0,20));
+  log('VP_COLS:', JSON.stringify(VP_COLS));
+  log('vpColumns keys:', Object.keys(vpColumns).join(', '));
+
+  toast(`⬆ Version ${ver} wird gespeichert…`, 'info');
 
   try {
-    // ── Step 1: Get parent file webUrl ─────────────────────────────
+    // Step 1: Parent webUrl
     let parentWebUrl = selected.webUrl || '';
     const parentItemId = selected.id || '';
     if (!parentWebUrl && drive && parentItemId) {
@@ -2077,8 +2090,9 @@ async function doVpUpload() {
         parentWebUrl = fr.webUrl || '';
       } catch {}
     }
+    log('parentWebUrl:', parentWebUrl.substring(0,60));
 
-    // ── Step 2: Upload version file to IT site via Graph ───────────
+    // Step 2: Upload file
     const safeTitle  = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
     const safeVer    = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
     const attachName = `${safeVer}_${vpmFile.name}`;
@@ -2090,9 +2104,9 @@ async function doVpUpload() {
         buf, vpmFile.type||'application/octet-stream'
       );
       fileWebUrl = up.webUrl||'';
-      console.log('[VP] uploaded to IT site:', fileWebUrl);
+      log('File uploaded OK:', fileWebUrl.substring(0,60));
     } catch(e) {
-      console.warn('[VP] upload to IT site failed, trying current drive:', e.message);
+      log('Upload to IT site FAILED:', e.message);
       if (drive) {
         try {
           const fid = pathStack[pathStack.length-1]?.id||'root';
@@ -2101,58 +2115,65 @@ async function doVpUpload() {
             : `/drives/${drive.id}/items/${fid}:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`;
           const up2 = await gPut(url, buf, vpmFile.type||'application/octet-stream');
           fileWebUrl = up2.webUrl||'';
-        } catch(e2) { console.warn('[VP] fallback upload also failed:', e2.message); }
+          log('Fallback upload OK:', fileWebUrl.substring(0,60));
+        } catch(e2) { log('Fallback ALSO failed:', e2.message); }
       }
     }
 
-    // ── Step 3: POST only Title (safest, always works) ─────────────
+    // Step 3: Create list item
     let newItem;
     try {
       newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,
         {fields: {Title: selected.name}});
+      log('List item created, id:', newItem.id);
     } catch(e) {
-      throw new Error('Liste nicht erreichbar: ' + e.message);
+      throw new Error('Liste POST fehlgeschlagen: ' + e.message);
     }
     const itemId = newItem.id;
-    console.log('[VP] item created, id:', itemId);
 
-    // ── Step 4: PATCH each field individually ──────────────────────
-    console.log('[VP] Patching item', itemId, '| VP_COLS:', JSON.stringify(VP_COLS), '| fileWebUrl:', fileWebUrl);
-
-    const patchField = async (col, val) => {
-      if (!col || val === undefined || val === null || val === '') return false;
+    // Step 4: PATCH each field
+    const patch = async (col, val, label) => {
+      if (!col || !val && val !== 0) { log('SKIP', label||col, '(empty col or val)'); return false; }
       try {
         await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, {[col]: val});
-        console.log('[VP] ✓', col, '=', String(val).substring(0,60));
+        log('PATCH OK:', label||col, '=', String(val).substring(0,50));
         return true;
-      } catch(e) { console.warn('[VP] ✗', col, e.message); return false; }
+      } catch(e) {
+        log('PATCH FAIL:', label||col, '['+col+']', e.message.substring(0,80));
+        return false;
+      }
     };
 
-    // Write each field using VP_COLS with hardcoded fallback
-    await patchField(VP_COLS.VersionNr || 'Versionsnummer', ver);
-    if (komm)   await patchField(VP_COLS.Kommentar || 'Kommentar', komm);
-    if (status) await patchField(VP_COLS.Status_   || 'Status',    status);
-    await patchField(VP_COLS.Datum     || 'Datum',   new Date().toISOString());
-    if (VP_COLS.DateiName) await patchField(VP_COLS.DateiName, attachName);
+    await patch(VP_COLS.VersionNr || 'Versionsnummer', ver, 'VersionNr');
+    if (komm)   await patch(VP_COLS.Kommentar || 'Kommentar', komm, 'Kommentar');
+    if (status) await patch(VP_COLS.Status_   || 'Status', status, 'Status');
+    await patch(VP_COLS.Datum || 'Datum', new Date().toISOString(), 'Datum');
+    if (VP_COLS.DateiName) await patch(VP_COLS.DateiName, attachName, 'DateiName');
 
-    // Datei-Link — try resolved col AND hardcoded Datei_x002d_Link
     if (fileWebUrl) {
       const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
-      let linked = await patchField(linkCol, fileWebUrl);
-      if (!linked && linkCol !== 'Datei_x002d_Link')
-        linked = await patchField('Datei_x002d_Link', fileWebUrl);
-      if (!linked) {
-        try {
-          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,
-            {[linkCol]: {Url: fileWebUrl, Description: attachName}});
-          console.log('[VP] ✓', linkCol, 'as hyperlink');
-        } catch(e) { console.warn('[VP] ✗ hyperlink:', e.message); }
-      }
+      let ok = await patch(linkCol, fileWebUrl, 'DateiLink(string)');
+      if (!ok) ok = await patch(linkCol, {Url:fileWebUrl, Description:attachName}, 'DateiLink(object)');
+      if (!ok && linkCol !== 'Datei_x002d_Link')
+        await patch('Datei_x002d_Link', fileWebUrl, 'DateiLink(fallback)');
     }
 
-    toast(fileWebUrl
-      ? `✓ Version ${ver} gespeichert — Datei-Link gesetzt`
-      : `✓ Version ${ver} gespeichert`, 'success');
+    log('=== DONE ===');
+
+    // Show debug in a persistent toast so user can read it
+    const debugText = dbg.join('\n');
+    const dbgDiv = document.createElement('div');
+    dbgDiv.style.cssText='position:fixed;bottom:80px;right:20px;width:480px;max-height:300px;overflow:auto;background:#0a1f3c;color:#7dd3fc;font-size:10px;font-family:monospace;padding:12px;border-radius:8px;z-index:9999;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,.5);';
+    dbgDiv.textContent = debugText;
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent='✕';
+    closeBtn.style.cssText='position:absolute;top:6px;right:8px;background:none;border:none;color:#7dd3fc;cursor:pointer;font-size:14px;';
+    closeBtn.onclick=()=>dbgDiv.remove();
+    dbgDiv.appendChild(closeBtn);
+    document.body.appendChild(dbgDiv);
+    setTimeout(()=>dbgDiv?.remove(), 30000);
+
+    toast(fileWebUrl ? `✓ Version ${ver} gespeichert` : `✓ Version ${ver} (kein Datei-Link)`, 'success');
     vpmFile = null;
     if (selected) await loadVpEntries(selected);
   } catch(e) {
