@@ -1736,7 +1736,14 @@ function mkTreeNode(item, depth=0) {
       if(btn.title==='Herunterladen') {
         btn.addEventListener('click', async e=>{
           e.stopPropagation();
-          vpDownloadFresh(drive.id, item.id, item.name);
+          // Get the @microsoft.graph.downloadUrl (direct binary) then blob-fetch it
+          try {
+            const d = await gGet(`/drives/${drive.id}/items/${item.id}?$select=@microsoft.graph.downloadUrl,name`);
+            const u = d['@microsoft.graph.downloadUrl'] || item.webUrl;
+            vpDownload(u, item.name);
+          } catch {
+            vpDownload(item.webUrl, item.name);
+          }
         });
       } else if(btn.title==='Versionen') {
         btn.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
@@ -2265,17 +2272,27 @@ async function vpAttachFile(itemId) {
 
 function vpDownload(url, name) {
   if (!url) { toast('Keine Download-URL','info'); return; }
-  // SP webUrls open in browser — we need the Graph downloadUrl which forces a save dialog
-  // If the url is already a direct download (contains downloadUrl params), use it directly
-  // Otherwise fetch fresh downloadUrl from Graph by searching for the file
-  const a = document.createElement('a');
-  a.style.display = 'none';
-  a.download = name || 'download';
-  a.href = url;
-  // Add target=_blank as fallback but set download attribute
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => document.body.removeChild(a), 500);
+  const filename = name || 'download';
+  toast('⬇ Download läuft…','info');
+  // Fetch the file as a blob with the Bearer token, then trigger save dialog
+  getToken().then(tok => {
+    return fetch(url, { headers: { Authorization: 'Bearer ' + tok } });
+  }).then(r => {
+    if (!r.ok) throw new Error(r.status);
+    return r.blob();
+  }).then(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+  }).catch(e => {
+    console.warn('Blob download failed:', e.message);
+    // Last resort: open with download hint
+    window.open(url.includes('?') ? url + '&download=1' : url + '?download=1', '_blank');
+  });
 }
 
 async function vpDownloadFresh(driveId, itemId, name) {
@@ -2716,7 +2733,12 @@ function renderMainVpTree(item, entries) {
       const autor= (VP_COLS.Autor      && f[VP_COLS.Autor])      || f.Benutzer   || f.Autor  || '';
       const dt   = (VP_COLS.Datum      && f[VP_COLS.Datum])      || f.Datum      || it.createdDateTime || '';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
-      const dlNm = (VP_COLS.DateiName  && f[VP_COLS.DateiName])  || f.DateiName  || f.Dateiname || '';
+      // Dateiname: check both dedicated column AND hyperlink description field
+      const linkColDesc = (VP_COLS.DateiLink||'Datei_x002d_Link') + 'Desc';
+      const dlNm = (VP_COLS.DateiName  && f[VP_COLS.DateiName])
+                || f.DateiName || f.Dateiname
+                || f[linkColDesc]  // SP hyperlink description = filename
+                || '';
 
       // Datei-Link hyperlink field: Graph returns it split as {linkCol}Url and {linkCol}Desc
       const linkCol = VP_COLS.DateiLink || 'Datei_x002d_Link';
@@ -2783,19 +2805,7 @@ function renderMainVpTree(item, entries) {
       node.querySelector('.mv-act.dl')?.addEventListener('click', async e=>{
         e.stopPropagation();
         if (!dlUrl) { toast('Keine Download-URL.','info'); return; }
-        // Try to get a fresh Graph downloadUrl (forces save dialog)
-        // The stored webUrl is a SP page URL — we need the actual file download URL
-        // Find the file in the IT site drive via its webUrl path
-        try {
-          // Extract path from webUrl and fetch via SP drive
-          const urlObj = new URL(dlUrl);
-          const relPath = decodeURIComponent(urlObj.pathname);
-          const fresh = await gGet(`/sites/${vpSiteId}/drive/root:${relPath}?$select=@microsoft.graph.downloadUrl,name`);
-          const dlDirect = fresh['@microsoft.graph.downloadUrl'];
-          if (dlDirect) { vpDownload(dlDirect, dlNm||ver+'.file'); return; }
-        } catch {}
-        // Fallback: use webUrl with download param
-        vpDownload(dlUrl.includes('?') ? dlUrl+'&download=1' : dlUrl+'?download=1', dlNm||ver+'.file');
+        vpDownload(dlUrl, dlNm || ver + '_' + item.name);
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
