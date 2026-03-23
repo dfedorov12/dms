@@ -1985,7 +1985,7 @@ function hideMainVersionOverlay() {
   const o=$id('main-ver-overlay'); if(o) o.style.display='none';
 }
 
-
+async function saveVpEdit(el, itemId) {
   if(!vpSiteId||!vpListId)return;
   const inputs=el.querySelectorAll('.vp-edit-in');
   const raw={};
@@ -2072,14 +2072,9 @@ async function doVpUpload() {
     const webUrl   = uploaded.webUrl||'';
 
     // 2. Build the parent file's SharePoint URL for the "Datei-Link" join key
-    // selected.webUrl is the SP URL of the original file being versioned
     const parentUrl = selected.webUrl || '';
 
     // 3. Build fields using ONLY columns that actually exist in the list
-    //    buildVpFields maps logical names → real internal column names
-    //    and silently drops anything not present → no more 400 errors
-    // Dateilink = the SP webUrl of the ORIGINAL file (the join key for filtering)
-    const parentUrl = selected.webUrl||'';
     const rawFields = {
       Title:     selected.name,
       Dateilink: parentUrl,        // join key: full SP URL of the versioned file
