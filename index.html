@@ -826,6 +826,7 @@ const TENANT_ID    = 'fdb70646-023a-403b-a4b9-1f474a935123';
 const SCOPES       = ['User.Read','Sites.Read.All','Sites.ReadWrite.All','Files.ReadWrite.All'];
 const PIN_KEY       = 'dihag_pinned_v4';
 const DRIVE_PIN_KEY = 'dihag_pinned_drives_v1';
+const FOLDER_PIN_KEY= 'dihag_pinned_folders_v1';
 // Versionsprotokoll list – IT site
 const VP_SITE_URL  = 'dihag.sharepoint.com:/sites/IT';
 const VP_LIST_NAME = 'Versionsprotokoll';
@@ -845,7 +846,8 @@ let dragId         = null;
 let siteTimer      = null;
 let docSearchTimer = null;
 let pinnedSites    = loadPinned();
-let pinnedDrives   = loadPinnedDrives();  // [{ id, name, siteId, siteName }]
+let pinnedDrives   = loadPinnedDrives();
+let pinnedFolders  = loadPinnedFolders(); // [{ id, name, driveId, driveName, siteId, path }]
 const driveState   = {};
 
 // Version-log list state (resolved at startup)
@@ -906,8 +908,13 @@ function renderPinnedDrives() {
   const list = $id('pinned-drives-list');
   if (!sec || !list) return;
   list.innerHTML='';
-  if (!pinnedDrives.length) { sec.style.display='none'; return; }
+
+  // Render pinned drives + pinned folders together
+  const hasDrives  = pinnedDrives.length > 0;
+  const hasFolders = pinnedFolders.length > 0;
+  if (!hasDrives && !hasFolders) { sec.style.display='none'; return; }
   sec.style.display='block';
+
   pinnedDrives.forEach(pd=>{
     const el=document.createElement('div');
     el.className='drive-item pinned-drive'; el.style.marginBottom='4px';
@@ -931,12 +938,67 @@ function renderPinnedDrives() {
       await loadFolder('root');
     });
     el.querySelector('.drive-pin-btn').addEventListener('click', e=>{
-      e.stopPropagation();
-      unpinDrive(pd.id);
-      toast('Bibliothek entfernt','info');
+      e.stopPropagation(); unpinDrive(pd.id); toast('Bibliothek entfernt','info');
     });
     list.appendChild(el);
   });
+
+  // Pinned folders
+  pinnedFolders.forEach(pf=>{
+    const el=document.createElement('div');
+    el.className='drive-item pinned-drive'; el.style.marginBottom='4px';
+    el.innerHTML=`
+      <div class="drive-header" style="padding:7px 9px;">
+        <div class="drive-ic" style="background:#f59e0b;width:24px;height:24px;font-size:14px;display:flex;align-items:center;justify-content:center;">📁</div>
+        <div class="drive-title">
+          <div class="drive-name" style="font-size:11px;">${esc(pf.name)}</div>
+          <div class="drive-sub">${esc(pf.driveName||'')}${pf.path?' · '+esc(pf.path):''}</div>
+        </div>
+        <button class="drive-pin-btn" style="opacity:.7;">📌</button>
+      </div>`;
+    el.querySelector('.drive-header').addEventListener('click', async e=>{
+      if(e.target.closest('.drive-pin-btn'))return;
+      // Switch to the folder's drive if different
+      if(drive?.id !== pf.driveId) {
+        drive={id:pf.driveId, name:pf.driveName||pf.name, siteId:pf.siteId};
+        cache={}; enableActions(true);
+      }
+      pathStack=[{id:'root',name:pf.driveName||'Bibliothek'},{id:pf.id,name:pf.name}];
+      cache={}; closeVersionPanel();
+      await loadFolder(pf.id);
+    });
+    el.querySelector('.drive-pin-btn').addEventListener('click', e=>{
+      e.stopPropagation(); unpinFolder(pf.id); toast('Ordner entfernt','info');
+    });
+    list.appendChild(el);
+  });
+}
+
+// ══ FOLDER PIN ═══════════════════════════════════════════════════════
+function loadPinnedFolders() {
+  try { return JSON.parse(localStorage.getItem(FOLDER_PIN_KEY)||'[]'); } catch { return []; }
+}
+function savePinnedFolders() {
+  try { localStorage.setItem(FOLDER_PIN_KEY, JSON.stringify(pinnedFolders)); } catch {}
+}
+function isFolderPinned(id) { return pinnedFolders.some(f=>f.id===id); }
+function pinFolder(item) {
+  if (!isFolderPinned(item.id)) {
+    const path = pathStack.map(p=>p.name).join(' › ');
+    pinnedFolders.unshift({
+      id:item.id, name:item.name,
+      driveId:drive?.id||'', driveName:drive?.name||'',
+      siteId:drive?.siteId||'',
+      path: pathStack.slice(1).map(p=>p.name).join(' › ')
+    });
+    savePinnedFolders();
+  }
+  renderPinnedDrives();
+}
+function unpinFolder(id) {
+  pinnedFolders=pinnedFolders.filter(f=>f.id!==id);
+  savePinnedFolders();
+  renderPinnedDrives();
 }
 
 // ══ MSAL ══════════════════════════════════════════════════════════════
@@ -1573,31 +1635,38 @@ function mkTreeNode(item, depth=0) {
         :`<span class="tc-badge file-b">${getExt(item.name)}</span>`}
       </div>
     </div>
-    ${!isF?`<button class="tc-act-btn">📋</button>`:''}`;
+    ${isF?`<button class="tc-act-btn tc-pin-btn" title="Ordner merken" style="background:none;border:none;font-size:13px;cursor:pointer;padding:3px 5px;opacity:${isFolderPinned(item.id)?'1':'.3'};" data-folder-id="${item.id}">${isFolderPinned(item.id)?'📌':'🔖'}</button>`:''}
+    ${!isF?`<button class="tc-act-btn" title="Versionen verwalten">🗂</button>`:''}`;
 
-  if(!isF){
-    card.querySelector('.tc-act-btn').addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
-    // Drag
-    card.draggable=true;
-    card.ondragstart=e=>{dragId=item.id;card.classList.add('dragging');e.dataTransfer.effectAllowed='move';};
-    card.ondragend=()=>{card.classList.remove('dragging');dragId=null;};
-  } else {
+  if(isF) {
+    const pinBtn=card.querySelector('.tc-pin-btn');
+    if(pinBtn) pinBtn.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(isFolderPinned(item.id)){ unpinFolder(item.id); pinBtn.textContent='🔖'; pinBtn.style.opacity='.3'; toast('Ordner entfernt','info'); }
+      else { pinFolder(item); pinBtn.textContent='📌'; pinBtn.style.opacity='1'; toast(`📌 „${item.name}" gemerkt`,'success'); }
+    });
+    // Folder drag target
     card.ondragover=e=>{e.preventDefault();card.classList.add('drag-over');};
     card.ondragleave=()=>card.classList.remove('drag-over');
     card.ondrop=e=>{e.preventDefault();card.classList.remove('drag-over');if(dragId&&dragId!==item.id)moveItem(dragId,item.id,item.name);};
+  } else {
+    // File — version panel button
+    card.querySelector('.tc-act-btn')?.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
+    card.draggable=true;
+    card.ondragstart=e=>{dragId=item.id;card.classList.add('dragging');e.dataTransfer.effectAllowed='move';};
+    card.ondragend=()=>{card.classList.remove('dragging');dragId=null;};
   }
 
   // Children container
   const children=document.createElement('div');
   children.className='tree-children';
 
-  // Click card: file → version panel; folder → navigate (update pathStack + breadcrumb)
-  card.addEventListener('click', async()=>{
+  // Click card: file → open in SharePoint; folder → navigate; 🗂 button → version panel
+  card.addEventListener('click', async(e)=>{
+    if(e.target.closest('.tc-act-btn')) return; // handled by 🗂 button
     if(isF){
-      // Navigate into folder (also updates breadcrumb)
       pathStack.push({id:item.id,name:item.name});
       updateBreadcrumb();
-      // Lazy-load children if not in cache
       if(!cache[item.id]){
         $id('main').innerHTML='<div class="spinner" style="margin-top:40px;"></div>';
         await loadFolder(item.id);
@@ -1605,6 +1674,10 @@ function mkTreeNode(item, depth=0) {
         renderView(cache[item.id]);
       }
     } else {
+      // Click on file row → open file directly in SharePoint
+      const url = item.webUrl||item['@microsoft.graph.downloadUrl']||'';
+      if(url) window.open(url,'_blank');
+      // Also show version panel inline
       openVersionPanel(item);
     }
   });
@@ -1945,102 +2018,80 @@ async function doVpUpload() {
   const status =($id('vpm-status').value||'').trim();
   $id('vpm-err').style.display='none';
   closeVpUploadModal();
-  toast(`⬆ Lade „${vpmFile.name}" hoch…`,'info');
+  toast(`⬆ Lade "${vpmFile.name}" hoch…`,'info');
 
   try {
-    // 1. Upload file to _Versionen/{selectedFile}/{ver}_{filename}
+    // 0. Get real SP webUrl for the parent file (join key for Datei-Link)
+    let parentWebUrl = selected.webUrl||'';
+    const parentItemId = selected.id||'';
+    if (!parentWebUrl) {
+      try {
+        const fresh = await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`);
+        parentWebUrl = fresh.webUrl||'';
+      } catch {}
+    }
+    console.log('[VP] parent webUrl:', parentWebUrl, 'id:', parentItemId);
+
+    // 1. Upload version file
     const safeVer  = ver.replace(/[^a-zA-Z0-9._-]/g,'_');
     const destName = `${safeVer}_${vpmFile.name}`;
     const fid      = pathStack[pathStack.length-1]?.id||'root';
     const uploadUrl = fid==='root'
       ? `/drives/${drive.id}/root:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`
       : `/drives/${drive.id}/items/${fid}:/${VP_FOLDER}/${encodeURIComponent(selected.name)}/${encodeURIComponent(destName)}:/content`;
-
     const buf      = await vpmFile.arrayBuffer();
     const uploaded = await gPut(uploadUrl, buf, vpmFile.type||'application/octet-stream');
     const dlUrl    = uploaded['@microsoft.graph.downloadUrl']||'';
     const webUrl   = uploaded.webUrl||'';
     const fileUrl  = dlUrl||webUrl;
-    const parentUrl= selected.webUrl||'';
 
-    // 2. Find the Datei-Link column internal name from the list
-    const linkColName = vpField('Dateilink');
-
-    // 3. Build fields – only use columns that exist, handle Hyperlink type correctly
-    const fields = {};
-    // Title = "filename::itemID" so we can filter by ID even without Datei-Link
-    fields['Title'] = selected.name;
-
-    // Map each logical field to its real SP column name
+    // 2. Build fields
+    const linkColName   = vpField('Dateilink');
+    const fileItemIdCol = vpField('FileItemId');
+    const fields = { Title: selected.name };
     const mappings = {
       VersionNr: ver, Kommentar: komm, Status_: status,
       Datum:     new Date().toISOString(),
       Autor:     account?.name||account?.username||'',
-      DateiName: destName,
-      DateiUrl:  fileUrl,
-      // Store item ID in a plain text field so filtering works reliably
-      FileItemId:selected.id,
-      DriveId:   drive.id||'',
+      DateiName: destName, DateiUrl: fileUrl,
+      FileItemId:parentItemId, DriveId:drive.id||'',
     };
-    for (const [logical, val] of Object.entries(mappings)) {
+    for (const [lg,val] of Object.entries(mappings)) {
       if (!val) continue;
-      const col = vpField(logical);
+      const col = vpField(lg);
       if (col) fields[col] = val;
     }
+    // Datei-Link = SP webUrl of the parent file (the 1:1 join key)
+    if (linkColName && parentWebUrl) fields[linkColName] = parentWebUrl;
+    // Also store item ID directly if column exists
+    if (fileItemIdCol) fields[fileItemIdCol] = parentItemId;
 
-    // Datei-Link: try as plain text first; SP Hyperlink fields may need {Url,Description}
-    if (linkColName && parentUrl) {
-      fields[linkColName] = parentUrl;
-    }
-
-    console.log('[VP POST] columns available:', Object.keys(vpColumns).join(', '));
-    console.log('[VP POST] sending fields:', JSON.stringify(fields));
-
-    // 4. POST with progressive fallback strategy
-    let posted = false;
+    // 3. Progressive POST (try plain string, then Hyperlink object, then minimal)
     const attempts = [
-      // Attempt 1: all fields, Datei-Link as plain string
-      () => gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields}),
-      // Attempt 2: all fields, Datei-Link as Hyperlink object
-      () => {
-        const f2 = {...fields};
-        if(linkColName && parentUrl) f2[linkColName] = {Url: parentUrl, Description: selected.name};
-        return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields: f2});
-      },
-      // Attempt 3: minimal – only Title + version fields (no URL fields)
-      () => {
-        const fMin = {Title: selected.name};
-        ['VersionNr','Kommentar','Status_','DateiName'].forEach(lg=>{
-          const col=vpField(lg); const val=mappings[lg];
-          if(col&&val) fMin[col]=val;
-        });
-        return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields: fMin});
-      },
-      // Attempt 4: absolute minimal – just Title
-      () => gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`, {fields:{Title:`${selected.name} | ${ver}`}}),
+      ()=>gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields}),
+      ()=>{ const f2={...fields};
+            if(linkColName&&parentWebUrl) f2[linkColName]={Url:parentWebUrl,Description:selected.name};
+            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:f2}); },
+      ()=>{ const fMin={Title:selected.name};
+            ['VersionNr','Kommentar','Status_','DateiName','FileItemId'].forEach(lg=>{
+              const c=vpField(lg); const v=mappings[lg]; if(c&&v) fMin[c]=v;
+            });
+            if(fileItemIdCol) fMin[fileItemIdCol]=parentItemId;
+            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:fMin}); },
+      ()=>gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:{Title:selected.name}}),
     ];
-
-    for (let i=0; i<attempts.length; i++) {
-      try {
-        await attempts[i]();
-        posted = true;
-        console.log(`[VP POST] success on attempt ${i+1}`);
-        break;
-      } catch(err) {
-        console.warn(`[VP POST] attempt ${i+1} failed:`, err.message);
-        if (i === attempts.length-1) throw err;
-      }
+    for(let i=0;i<attempts.length;i++){
+      try{ await attempts[i](); console.log(`[VP] success attempt ${i+1}`); break; }
+      catch(err){ console.warn(`[VP] attempt ${i+1}:`,err.message); if(i===attempts.length-1) throw err; }
     }
-
-    if (posted) {
-      toast(`„${destName}" ✓ hochgeladen & Eintrag angelegt`,'success');
-      vpmFile = null;
-      if(selected) await loadVpEntries(selected);
-    }
+    toast(`"${destName}" ✓ hochgeladen & Eintrag angelegt`,'success');
+    vpmFile=null;
+    if(selected) await loadVpEntries(selected);
   } catch(e) {
     toast('VP-Upload-Fehler: '+e.message,'error');
   }
 }
+
 
 // File handler for "📎 Datei" button on existing entry (re-upload/replace)
 async function vpAttachFile(itemId) {
@@ -2466,9 +2517,8 @@ function renderMainVpTree(item, entries) {
       </select>
     </div>
     <div class="mv-add-row">
-      <button class="mv-upload-btn" title="Datei hochladen + Eintrag anlegen">⬆ Version</button>
+      <button class="mv-upload-btn" title="Datei hochladen + Eintrag anlegen">⬆ Version hochladen</button>
       <span class="mv-file-badge" style="display:none;"></span>
-      <button class="mv-add-btn">✓ Eintragen</button>
     </div>
     <div class="mv-add-err" style="font-size:11px;color:var(--red);display:none;"></div>`;
 
@@ -2477,7 +2527,6 @@ function renderMainVpTree(item, entries) {
   const statSel  = form.querySelector('.mv-add-status');
   const uploadBtn= form.querySelector('.mv-upload-btn');
   const fileBadge= form.querySelector('.mv-file-badge');
-  const addBtn   = form.querySelector('.mv-add-btn');
   const errEl    = form.querySelector('.mv-add-err');
 
   // Upload button → VP upload modal
@@ -2491,53 +2540,7 @@ function renderMainVpTree(item, entries) {
     }, 50);
   });
 
-  // Text-only entry
-  addBtn.addEventListener('click', async () => {
-    const ver = verIn.value.trim();
-    if (!ver) { errEl.textContent='Versionsnummer eingeben'; errEl.style.display='block'; return; }
-    errEl.style.display='none';
-    if (!vpSiteId||!vpListId) { toast('Liste nicht verbunden','error'); return; }
-    addBtn.disabled=true; addBtn.textContent='…';
 
-    const linkCol  = vpField('Dateilink');
-    const parentUrl= item.webUrl||'';
-
-    // Build base fields without the Hyperlink column
-    const rawFields = {
-      Title:     item.name,
-      VersionNr: ver,
-      Kommentar: commIn.value.trim(),
-      Status_:   statSel.value,
-      Datum:     new Date().toISOString(),
-      Autor:     account?.name||account?.username||''
-    };
-    const fields = buildVpFields(rawFields);
-    if (!fields.Title) fields.Title = item.name;
-
-    // Hyperlink field: try plain string, then object, then skip
-    const attempts = [
-      ()=>{ if(linkCol&&parentUrl) fields[linkCol]=parentUrl;
-            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields}); },
-      ()=>{ const f2={...fields};
-            if(linkCol&&parentUrl) f2[linkCol]={Url:parentUrl,Description:item.name};
-            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:f2}); },
-      ()=>{ const fMin={Title:item.name};
-            ['VersionNr','Kommentar','Status_'].forEach(lg=>{const c=vpField(lg);if(c&&rawFields[lg])fMin[c]=rawFields[lg];});
-            return gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,{fields:fMin}); },
-    ];
-    let ok=false;
-    for(let i=0;i<attempts.length;i++){
-      try{ await attempts[i](); ok=true; break; }
-      catch(e){ console.warn(`addEntry attempt ${i+1}:`,e.message); if(i===attempts.length-1) throw e; }
-    }
-    if(ok){
-      verIn.value=''; commIn.value=''; statSel.value='';
-      toast(`Eintrag „${ver}" gespeichert ✓`,'success');
-      renderMainVpTree(item, null);
-      await loadVpEntries(item);
-    }
-    addBtn.disabled=false; addBtn.textContent='✓ Eintragen';
-  });
 
   widget.appendChild(form);
 
@@ -2611,13 +2614,63 @@ function renderMainVpTree(item, entries) {
           <div class="mv-acts">
             <button class="mv-act open" ${!dlUrl?'style="opacity:.35;pointer-events:none;"':''}>↗ Öffnen</button>
             <button class="mv-act dl"   ${!dlUrl?'style="opacity:.35;pointer-events:none;"':''}>⬇ Download</button>
+            <button class="mv-act edit">✎ Bearbeiten</button>
             <button class="mv-act del">🗑</button>
+          </div>
+          <!-- inline edit form -->
+          <div class="mv-edit-wrap" style="display:none;margin-top:8px;">
+            <div style="display:grid;grid-template-columns:72px 1fr;gap:5px;margin-bottom:5px;">
+              <input class="mv-edit-ver"  type="text" placeholder="v1.0" style="padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;background:#fff;"/>
+              <input class="mv-edit-comm" type="text" placeholder="Kommentar" style="padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;background:#fff;"/>
+            </div>
+            <div style="display:flex;gap:5px;">
+              <select class="mv-edit-stat" style="flex:1;padding:5px 7px;border:1.5px solid var(--border2);border-radius:4px;font-family:inherit;font-size:11px;outline:none;background:#fff;">
+                <option value="">— Status —</option>
+                <option value="Entwurf">Entwurf</option>
+                <option value="Unterschrieben">Unterschrieben</option>
+                <option value="Teilunterschrieben">Teilunterschrieben</option>
+              </select>
+              <button class="mv-edit-save" style="background:var(--navy);border:none;color:#fff;padding:5px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;">✓</button>
+              <button class="mv-edit-cancel" style="background:var(--bg);border:1px solid var(--border);color:var(--text-muted);padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;">✕</button>
+            </div>
           </div>
         </div>`;
 
       if(dlUrl) {
         node.querySelector('.mv-act.open')?.addEventListener('click', e=>{ e.stopPropagation(); window.open(dlUrl,'_blank'); });
         node.querySelector('.mv-act.dl')?.addEventListener('click', e=>{ e.stopPropagation(); vpDownload(dlUrl, dlNm||ver+'_'+item.name); });
+      }
+      // Edit button
+      const editBtn = node.querySelector('.mv-act.edit');
+      const editWrap= node.querySelector('.mv-edit-wrap');
+      if(editBtn&&editWrap) {
+        // Pre-fill edit form
+        const ev=editWrap.querySelector('.mv-edit-ver');
+        const ec=editWrap.querySelector('.mv-edit-comm');
+        const es=editWrap.querySelector('.mv-edit-stat');
+        if(ev) ev.value=ver; if(ec) ec.value=komm; if(es) es.value=stat;
+        editBtn.addEventListener('click', e=>{
+          e.stopPropagation();
+          editWrap.style.display=editWrap.style.display==='none'?'block':'none';
+        });
+        editWrap.querySelector('.mv-edit-cancel')?.addEventListener('click', e=>{
+          e.stopPropagation(); editWrap.style.display='none';
+        });
+        editWrap.querySelector('.mv-edit-save')?.addEventListener('click', async e=>{
+          e.stopPropagation();
+          if(!vpSiteId||!vpListId)return;
+          const newVer = ev?.value.trim()||ver;
+          const newComm= ec?.value.trim()||'';
+          const newStat= es?.value||'';
+          const raw={VersionNr:newVer,Kommentar:newComm,Status_:newStat};
+          const fields=buildVpFields(raw);
+          try {
+            await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${it.id}/fields`,fields);
+            toast('Eintrag aktualisiert ✓','success');
+            renderMainVpTree(item,null);
+            await loadVpEntries(item);
+          } catch(err){toast('Fehler: '+err.message,'error');}
+        });
       }
       node.querySelector('.mv-act.del')?.addEventListener('click', e=>{
         e.stopPropagation();
