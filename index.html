@@ -2299,8 +2299,14 @@ async function vpDownload(url, name, storedDriveItemId, itemDriveId) {
     const isListAttachment = url && url.includes('/Lists/') && url.includes('/Attachments/');
     if (!cdnUrl && url && !isListAttachment && resolvedDriveId) {
       try {
-        const relPath = decodeURIComponent(new URL(url).pathname);
-        log('\nStep 2: path=' + relPath.substring(0, 60));
+        let relPath = decodeURIComponent(new URL(url).pathname);
+        // Strip site path prefix — drive root:path must be relative to drive root
+        // e.g. /sites/IT/Freigegebene Dokumente/... → /Freigegebene Dokumente/...
+        if (vpSiteWebUrl) {
+          const sitePath = new URL(vpSiteWebUrl).pathname.replace(/\/+$/, '');
+          if (relPath.startsWith(sitePath)) relPath = relPath.substring(sitePath.length) || '/';
+        }
+        log('\nStep 2: drive-relative path=' + relPath.substring(0, 70));
         const d = await gGet(`/drives/${resolvedDriveId}/root:${relPath}?$select=id,@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
         log('Step 2:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl, id=' + (d.id||'?'));
@@ -2795,8 +2801,10 @@ function renderMainVpTree(item, entries) {
       }
 
       // Description contains "driveItemId||filename" or just "filename"
-      const rawDesc = f[linkColDesc] || '';
-      const descParts = rawDesc.includes('||') ? rawDesc.split('||') : ['', rawDesc];
+      const rawDesc = f[linkColDesc] || f[linkBase] || '';
+      const rawDescStr = typeof rawDesc === 'object' ? (rawDesc.Description || rawDesc.description || '') : String(rawDesc);
+      console.log('[VP render] linkColDesc='+linkColDesc+' rawDesc='+JSON.stringify(f[linkColDesc])+'  linkBase val='+JSON.stringify(f[linkBase]));
+      const descParts = rawDescStr.includes('||') ? rawDescStr.split('||') : ['', rawDescStr];
       const storedDriveItemId = descParts[0] || '';
       const dlNm = descParts[1]
                 || (dlUrl ? decodeURIComponent(dlUrl.split('/').pop().split('?')[0]) : '')
