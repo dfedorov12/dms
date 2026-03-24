@@ -2201,15 +2201,9 @@ async function doVpUpload() {
 
   log(`=== DONE: ${successCount}/${files.length} erfolgreich ===`);
 
-  // Show debug panel
-  const dbgDiv=document.createElement('div');
-  dbgDiv.style.cssText='position:fixed;bottom:80px;right:20px;width:480px;max-height:280px;overflow:auto;background:#0a1f3c;color:#7dd3fc;font-size:10px;font-family:monospace;padding:12px;border-radius:8px;z-index:9999;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,.5);';
-  dbgDiv.textContent=dbg.join('\n');
-  const cb=document.createElement('button');
-  cb.textContent='✕';cb.style.cssText='position:absolute;top:6px;right:8px;background:none;border:none;color:#7dd3fc;cursor:pointer;font-size:14px;';
-  cb.onclick=()=>dbgDiv.remove(); dbgDiv.appendChild(cb);
-  document.body.appendChild(dbgDiv);
-  setTimeout(()=>dbgDiv?.remove(), 25000);
+  // Debug panel removed
+  /*
+  */
 
   toast(`✓ ${successCount} Version(en) gespeichert`, 'success');
   vpmFile=null;
@@ -2273,49 +2267,32 @@ async function vpAttachFile(itemId) {
 }
 
 
-async function vpDownload(url, name, driveItemIdHint) {
+async function vpDownload(url, name) {
   if (!url) { toast('Keine Download-URL','info'); return; }
   const filename = name || decodeURIComponent(url.split('/').pop().split('?')[0]) || 'download';
-  toast('⬇ Download läuft…','info');
-
-  // Strategy: get a fresh @microsoft.graph.downloadUrl (CDN URL, no auth, no CORS)
-  // then fetch as blob → save dialog
+  toast('⬇ Download…','info');
   try {
-    // If we have the drive item ID, fetch fresh downloadUrl directly
-    let cdnUrl = '';
-    if (driveItemIdHint && vpSiteId) {
-      try {
-        const d = await gGet(`/sites/${vpSiteId}/drive/items/${driveItemIdHint}?$select=@microsoft.graph.downloadUrl`);
-        cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
-      } catch {}
-    }
-    // If no direct ID, try to resolve by webUrl path
-    if (!cdnUrl && url.includes('sharepoint.com') && vpSiteId) {
-      try {
-        const urlObj = new URL(url);
-        const relPath = decodeURIComponent(urlObj.pathname);
-        const d = await gGet(`/sites/${vpSiteId}/drive/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
-        cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
-      } catch {}
-    }
-    // If still no CDN url, use Graph token with the original URL
-    const fetchUrl = cdnUrl || url;
-    const headers  = cdnUrl ? {} : { Authorization: 'Bearer ' + await getToken() };
-
-    const r = await fetch(fetchUrl, { headers });
+    // Use Graph /shares endpoint to resolve ANY SharePoint URL to a DriveItem
+    // Encoding: base64url("u!" + url)  →  no CORS, no auth on CDN url
+    const encoded = 'u!' + btoa(url).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+    const item = await gGet(`/shares/${encoded}/driveItem?$select=id,@microsoft.graph.downloadUrl`);
+    const cdnUrl = item['@microsoft.graph.downloadUrl'];
+    if (!cdnUrl) throw new Error('Keine downloadUrl');
+    // CDN url needs no auth — fetch as blob
+    const r = await fetch(cdnUrl);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const blob = await r.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
-    a.style.display = 'none';
+    a.style.display='none';
     document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
-    toast('✓ ' + filename + ' gespeichert', 'success');
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); },2000);
+    toast('✓ '+filename+' gespeichert','success');
   } catch(e) {
     console.warn('Download failed:', e.message);
-    toast('Download fehlgeschlagen: ' + e.message, 'error');
-    window.open(url, '_blank');
+    toast('Download: '+e.message,'error');
+    window.open(url,'_blank');
   }
 }
 
@@ -2831,9 +2808,7 @@ function renderMainVpTree(item, entries) {
       node.querySelector('.mv-act.dl')?.addEventListener('click', async e=>{
         e.stopPropagation();
         if (!dlUrl) { toast('Keine Download-URL.','info'); return; }
-        // FileItemId column stores the SP Drive item ID for fresh downloadUrl
-        const driveItemId = (VP_COLS.FileItemId && f[VP_COLS.FileItemId]) || f.FileItemId || '';
-        vpDownload(dlUrl, dlNm || ver + '_' + item.name, driveItemId);
+        vpDownload(dlUrl, dlNm || ver + '_' + item.name);
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
