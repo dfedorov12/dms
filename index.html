@@ -2195,7 +2195,9 @@ async function doVpUpload() {
 
       if (fileWebUrl) {
         const linkCol = VP_COLS.DateiLink||'Datei_x002d_Link';
-        const ok = await patchSpHyperlink(itemId, linkCol, fileWebUrl, attachName);
+        // Store driveItemId||filename in description for download lookup
+      const linkDesc = (driveItemId ? driveItemId + '||' : '') + attachName;
+      const ok = await patchSpHyperlink(itemId, linkCol, fileWebUrl, linkDesc);
         log(ok?'DateiLink OK (SP REST)':'DateiLink FAIL (SP REST)');
       }
 
@@ -2757,12 +2759,12 @@ function renderMainVpTree(item, entries) {
       const autor= (VP_COLS.Autor      && f[VP_COLS.Autor])      || f.Benutzer   || f.Autor  || '';
       const dt   = (VP_COLS.Datum      && f[VP_COLS.Datum])      || f.Datum      || it.createdDateTime || '';
       const dtFmt= dt?new Date(dt).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
-      // Dateiname: read from hyperlink description OR extract from URL
-      const linkBase = VP_COLS.DateiLink || 'Datei_x002d_Link';
+      // Datei-Link fields
+      const linkBase    = VP_COLS.DateiLink || 'Datei_x002d_Link';
       const linkColDesc = linkBase + 'Desc';
       const linkColUrl  = linkBase + 'Url';
 
-      // Build dlUrl first so we can extract filename from it
+      // Build dlUrl
       let dlUrl = f[linkColUrl] || f[linkBase + 'url'] || '';
       if (!dlUrl) {
         const raw = f[linkBase];
@@ -2776,12 +2778,14 @@ function renderMainVpTree(item, entries) {
         }
       }
 
-      // Filename: description field → fallback → extract from URL
-      const dlNm = f[linkColDesc]
-                || (VP_COLS.DateiName && f[VP_COLS.DateiName])
-                || f.DateiName || f.Dateiname
+      // Description contains "driveItemId||filename" or just "filename"
+      const rawDesc = f[linkColDesc] || '';
+      const descParts = rawDesc.includes('||') ? rawDesc.split('||') : ['', rawDesc];
+      const storedDriveItemId = descParts[0] || '';
+      const dlNm = descParts[1]
                 || (dlUrl ? decodeURIComponent(dlUrl.split('/').pop().split('?')[0]) : '')
                 || '';
+
 
       // No fading – all entries fully visible (only current gets green)
       const isLatest = idx === 0;
@@ -2831,8 +2835,6 @@ function renderMainVpTree(item, entries) {
       node.querySelector('.mv-act.dl')?.addEventListener('click', async e=>{
         e.stopPropagation();
         if (!dlUrl) { toast('Keine Download-URL.','info'); return; }
-        // Try to get driveItemId from FileItemId column (stored at upload time)
-        const storedDriveItemId = (VP_COLS.FileItemId && f[VP_COLS.FileItemId]) || f.FileItemId || f.DriveItemId || '';
         vpDownload(dlUrl, dlNm || ver + '_' + item.name, storedDriveItemId);
       });
       // Edit button
