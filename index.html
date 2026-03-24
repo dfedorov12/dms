@@ -2141,64 +2141,52 @@ async function doVpUpload() {
         try { const fr=await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`); parentWebUrl=fr.webUrl||''; } catch {}
       }
 
-       // Step 2: Upload file to SP Drive (gives us downloadUrl for actual download)
-       const attachName = `${ver.replace(/[^a-zA-Z0-9._-]/g,'_')}_${file.name}`;
-       const buf        = await file.arrayBuffer();
-       let fileWebUrl   = '';
-       let driveItemId  = '';
-       try {
-         const safeTitle = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
-         const up = await gPut(
-           `/sites/${vpSiteId}/drive/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`,
-           buf, file.type||'application/octet-stream'
-         );
-         fileWebUrl  = up.webUrl || '';
-         driveItemId = up.id    || '';
-         log('Drive upload OK:', fileWebUrl.substring(0,60));
-       } catch(e) {
-         log('Drive upload FAIL:', e.message);
-         // Fallback: current drive
-         if (drive) {
-           try {
-             const up2 = await gPut(
-               `/drives/${drive.id}/root:/Versionsprotokoll/${encodeURIComponent(file.name)}:/content`,
-               buf, file.type||'application/octet-stream'
-             );
-             fileWebUrl  = up2.webUrl || '';
-             driveItemId = up2.id || '';
-             log('Fallback drive OK:', fileWebUrl.substring(0,60));
-           } catch(e2){ log('Fallback FAIL:', e2.message); }
-         }
-       }
+      // Step 2: Upload file to IT site Drive → get driveItemId for download
+      const attachName = `${ver.replace(/[^a-zA-Z0-9._-]/g,'_')}_${file.name}`;
+      const buf        = await file.arrayBuffer();
+      let fileWebUrl   = '';
+      let driveItemId  = '';
+      try {
+        const safeTitle = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
+        const up = await gPut(
+          `/sites/${vpSiteId}/drive/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`,
+          buf, file.type||'application/octet-stream'
+        );
+        fileWebUrl  = up.webUrl || '';
+        driveItemId = up.id    || '';
+        log('Drive upload OK, driveItemId:', driveItemId, 'webUrl:', fileWebUrl.substring(0,50));
+      } catch(upErr) {
+        log('Drive upload FAIL:', upErr.message);
+      }
 
-       // Step 3b: Store drive item ID in list for fresh download URL
-       // Try dedicated column first, fall back to FileItemId
-       if (driveItemId) {
-         const driveIdCol = vpColByDisplay['driveitemid'] || vpColByDisplay['drive item id'] || VP_COLS.FileItemId;
-         if (driveIdCol) await patch(driveIdCol, driveItemId, 'DriveItemId').catch(()=>{});
-       }
+      // Step 3: Create list item (Title only — safest)
+      const newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,
+        {fields:{Title: selected.name}});
+      const itemId = newItem.id;
+      log('List item created, itemId:', itemId);
 
-      // Step 4: PATCH fields
-      const patch = async (col,val,lbl) => {
-        if(!col||!val&&val!==0){log('SKIP',lbl||col);return false;}
-        try{
-          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`,{[col]:val});
-          log('OK',lbl||col,'=',String(val).substring(0,50)); return true;
-        } catch(e){log('FAIL',lbl||col,e.message.substring(0,60));return false;}
+      // Step 4: PATCH helper — uses itemId defined above
+      const patch = async (col, val, lbl) => {
+        if (!col || (val===undefined||val===null||val==='')) { log('SKIP', lbl||col); return false; }
+        try {
+          await gPatch(`/sites/${vpSiteId}/lists/${vpListId}/items/${itemId}/fields`, {[col]: val});
+          log('OK', lbl||col, '=', String(val).substring(0,50)); return true;
+        } catch(e) { log('FAIL', lbl||col, e.message.substring(0,60)); return false; }
       };
 
-      await patch(VP_COLS.VersionNr||'Versionsnummer', parseFloat(ver.replace(/[^0-9.]/g,''))||baseVer+fi*0.1, 'VersionNr');
-      if(komm)   await patch(VP_COLS.Kommentar||'Kommentar', komm, 'Kommentar');
-      if(status) await patch(VP_COLS.Status_||'Status', status, 'Status');
+      await patch(VP_COLS.VersionNr||'Versionsnummer', parseFloat(ver.replace(/[^0-9.]/g,''))||1, 'VersionNr');
+      if (komm)   await patch(VP_COLS.Kommentar||'Kommentar', komm, 'Kommentar');
+      if (status) await patch(VP_COLS.Status_  ||'Status',    status, 'Status');
       await patch(VP_COLS.Datum||'Datum', new Date().toISOString(), 'Datum');
-      if(VP_COLS.DateiName) await patch(VP_COLS.DateiName, attachName, 'DateiName');
 
+      // Step 5: Datei-Link via SP REST — Description encodes "driveItemId||filename"
       if (fileWebUrl) {
-        const linkCol = VP_COLS.DateiLink||'Datei_x002d_Link';
-        // Store driveItemId||filename in description for download lookup
-      const linkDesc = (driveItemId ? driveItemId + '||' : '') + attachName;
-      const ok = await patchSpHyperlink(itemId, linkCol, fileWebUrl, linkDesc);
-        log(ok?'DateiLink OK (SP REST)':'DateiLink FAIL (SP REST)');
+        const linkCol  = VP_COLS.DateiLink || 'Datei_x002d_Link';
+        const linkDesc = driveItemId ? `${driveItemId}||${attachName}` : attachName;
+        const ok = await patchSpHyperlink(itemId, linkCol, fileWebUrl, linkDesc);
+        log(ok ? 'DateiLink OK (SP REST) ✓' : 'DateiLink FAIL');
+      } else {
+        log('No fileWebUrl — skipping DateiLink');
       }
 
       successCount++;
@@ -2311,16 +2299,19 @@ async function vpDownload(url, name, storedDriveItemId) {
       log('\nStep 1 skipped (missing driveItemId or vpSiteDriveId)');
     }
 
-    // Step 2: resolve by path
-    if (!cdnUrl && url.includes('sharepoint.com') && vpSiteDriveId) {
+    // Step 2: resolve by Drive path (only for Drive URLs, not List Attachments)
+    if (!cdnUrl && url.includes('sharepoint.com') && vpSiteDriveId
+        && !url.includes('/Lists/')) {
       try {
         const urlObj = new URL(url);
         const relPath = decodeURIComponent(urlObj.pathname);
-        log('\nStep 2: GET /drives/'+vpSiteDriveId+'/root:'+relPath.substring(0,50)+'...');
+        log('\nStep 2: path lookup for', relPath.substring(0,60));
         const d = await gGet(`/drives/${vpSiteDriveId}/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
         log('Step 2 result:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl');
       } catch(e) { log('Step 2 FAILED:', e.message); }
+    } else if (url.includes('/Lists/')) {
+      log('\nStep 2 skipped: URL is a List Attachment (not in Drive)');
     }
 
     if (!cdnUrl) {
