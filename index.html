@@ -2274,23 +2274,15 @@ async function vpAttachFile(itemId) {
 
 function vpDownload(url, name) {
   if (!url) { toast('Keine Download-URL','info'); return; }
-
-  // Extract filename from URL if name not provided
   const filename = name || decodeURIComponent(url.split('/').pop().split('?')[0]) || 'download';
-
   if (url.includes('sharepoint.com')) {
-    // SP: use hidden iframe to trigger download (works with session cookies, no CORS)
+    // window.location.href: SP sends Content-Disposition:attachment → browser saves file
     const dlUrl = url.includes('?') ? url + '&download=1' : url + '?download=1';
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = dlUrl;
-    document.body.appendChild(iframe);
-    setTimeout(() => document.body.removeChild(iframe), 5000);
-    toast('⬇ Download gestartet…','success');
+    window.location.href = dlUrl;
+    toast('⬇ ' + filename, 'success');
     return;
   }
-
-  // Graph direct download URL — fetch as blob
+  // Graph download URL — fetch as blob
   toast('⬇ Download läuft…','info');
   getToken().then(tok =>
     fetch(url, { headers: { Authorization: 'Bearer ' + tok } })
@@ -2299,16 +2291,11 @@ function vpDownload(url, name) {
     return r.blob();
   }).then(blob => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.style.display = 'none';
+    a.href = URL.createObjectURL(blob); a.download = filename; a.style.display='none';
     document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); },2000);
     toast('✓ Download gestartet','success');
-  }).catch(() => {
-    // Last resort: open in new tab
-    window.open(url + '?download=1', '_blank');
-  });
+  }).catch(() => { window.location.href = url + '?download=1'; });
 }
 
 async function vpDownloadFresh(driveId, itemId, name) {
