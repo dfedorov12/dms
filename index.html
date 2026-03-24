@@ -2279,45 +2279,75 @@ async function vpAttachFile(itemId) {
 async function vpDownload(url, name, storedDriveItemId) {
   if (!url) { toast('Keine Download-URL','info'); return; }
   const filename = name || decodeURIComponent(url.split('/').pop().split('?')[0]) || 'download';
-  toast('⬇ Download…','info');
+
+  // Debug overlay
+  const dbg = document.createElement('div');
+  dbg.style.cssText = 'position:fixed;bottom:10px;right:10px;width:500px;max-height:400px;overflow:auto;background:#0a1f3c;color:#7dd3fc;font-size:11px;font-family:monospace;padding:12px 14px;border-radius:8px;z-index:99999;white-space:pre-wrap;line-height:1.5;';
+  const log = (...a) => { dbg.textContent += a.join(' ') + '\n'; console.log(...a); };
+  const cb = document.createElement('button');
+  cb.textContent='✕'; cb.style.cssText='position:sticky;top:0;float:right;background:none;border:none;color:#fff;cursor:pointer;font-size:16px;';
+  cb.onclick=()=>dbg.remove(); dbg.appendChild(cb);
+  document.body.appendChild(dbg);
+
+  log('=== DOWNLOAD DEBUG ===');
+  log('url:', url.substring(0,80));
+  log('name:', filename);
+  log('storedDriveItemId:', storedDriveItemId||'(none)');
+  log('vpSiteDriveId:', vpSiteDriveId||'(none)');
+
   try {
     let cdnUrl = '';
 
-    // Method 1: Use stored drive item ID → direct Graph lookup (most reliable)
+    // Step 1: direct item lookup via stored drive item ID
     if (storedDriveItemId && vpSiteDriveId) {
       try {
+        log('\nStep 1: GET /drives/'+vpSiteDriveId+'/items/'+storedDriveItemId+'...');
         const d = await gGet(`/drives/${vpSiteDriveId}/items/${storedDriveItemId}?$select=@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
-      } catch(e) { console.warn('Direct item lookup failed:', e.message); }
+        log('Step 1 result:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl in response');
+        log('Keys returned:', Object.keys(d).join(', '));
+      } catch(e) { log('Step 1 FAILED:', e.message); }
+    } else {
+      log('\nStep 1 skipped (missing driveItemId or vpSiteDriveId)');
     }
 
-    // Method 2: Resolve path from webUrl via site drive
+    // Step 2: resolve by path
     if (!cdnUrl && url.includes('sharepoint.com') && vpSiteDriveId) {
       try {
         const urlObj = new URL(url);
         const relPath = decodeURIComponent(urlObj.pathname);
+        log('\nStep 2: GET /drives/'+vpSiteDriveId+'/root:'+relPath.substring(0,50)+'...');
         const d = await gGet(`/drives/${vpSiteDriveId}/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
-      } catch(e) { console.warn('Path lookup failed:', e.message); }
+        log('Step 2 result:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl');
+      } catch(e) { log('Step 2 FAILED:', e.message); }
     }
 
-    if (!cdnUrl) throw new Error('downloadUrl nicht auflösbar');
+    if (!cdnUrl) {
+      log('\nNO CDN URL — cannot download without CORS');
+      log('vpSiteDriveId:', vpSiteDriveId);
+      log('storedDriveItemId:', storedDriveItemId);
+      throw new Error('downloadUrl nicht verfügbar');
+    }
 
-    // CDN URL is pre-authenticated — no auth header needed, no CORS issue
+    log('\nFetching CDN URL (no auth)...');
     const r = await fetch(cdnUrl);
+    log('Fetch status:', r.status, r.statusText);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const blob = await r.blob();
+    log('Blob size:', blob.size, 'type:', blob.type);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
     a.style.display = 'none';
     document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
-    toast('✓ ' + filename + ' gespeichert', 'success');
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+    log('\n✓ DOWNLOAD TRIGGERED');
+    setTimeout(()=>dbg.remove(), 10000);
+    toast('✓ ' + filename, 'success');
   } catch(e) {
-    console.warn('Download error:', e.message);
-    toast('Download fehlgeschlagen — öffne in neuem Tab', 'error');
-    window.open(url, '_blank');
+    log('\nFINAL ERROR:', e.message);
+    toast('Download fehlgeschlagen: ' + e.message, 'error');
   }
 }
 
