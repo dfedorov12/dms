@@ -2137,38 +2137,39 @@ async function doVpUpload() {
         try { const fr=await gGet(`/drives/${drive.id}/items/${parentItemId}?$select=id,webUrl`); parentWebUrl=fr.webUrl||''; } catch {}
       }
 
-       // Step 2: Create list item FIRST (we need item ID for SP attachment)
+       // Step 2: Upload file to SP Drive (gives us downloadUrl for actual download)
        const attachName = `${ver.replace(/[^a-zA-Z0-9._-]/g,'_')}_${file.name}`;
        const buf        = await file.arrayBuffer();
        let fileWebUrl   = '';
-
-      // Step 3: Create list item
-      const newItem = await gPost(`/sites/${vpSiteId}/lists/${vpListId}/items`,
-        {fields:{Title:selected.name}});
-      const itemId = newItem.id;
-      log('List item id:', itemId);
-
-
-       // Step 3b: Upload file as SP list attachment (uses SP REST with SP token)
+       let driveItemId  = '';
        try {
-         const spTok = await getSpToken();
-         const attachUrl = `${vpSiteWebUrl}/_api/web/lists(guid'${vpListId}')/items(${itemId})/AttachmentFiles/add(FileName='${encodeURIComponent(attachName)}')`;
-         const r = await fetch(attachUrl, {
-           method: 'POST',
-           headers: { 'Authorization':'Bearer '+spTok, 'Content-Type':'application/octet-stream',
-                      'Accept':'application/json;odata=verbose' },
-           body: buf
-         });
-         if (r.ok || r.status===200) {
-           // Attachment URL: {siteUrl}/Lists/Versionsprotokoll/Attachments/{id}/{filename}
-           const listUrlName = encodeURIComponent(vpListName);
-           fileWebUrl = `${vpSiteWebUrl}/Lists/${listUrlName}/Attachments/${itemId}/${encodeURIComponent(attachName)}`;
-           log('Attachment OK:', fileWebUrl.substring(0,70));
-         } else {
-           const t = await r.text().catch(()=>''); 
-           log('Attachment FAIL:', r.status, t.substring(0,80));
+         const safeTitle = selected.name.replace(/[^a-zA-Z0-9._\- ]/g,'_');
+         const up = await gPut(
+           `/sites/${vpSiteId}/drive/root:/Versionsprotokoll/${encodeURIComponent(safeTitle)}/${encodeURIComponent(attachName)}:/content`,
+           buf, file.type||'application/octet-stream'
+         );
+         fileWebUrl  = up.webUrl || '';
+         driveItemId = up.id    || '';
+         log('Drive upload OK:', fileWebUrl.substring(0,60));
+       } catch(e) {
+         log('Drive upload FAIL:', e.message);
+         // Fallback: current drive
+         if (drive) {
+           try {
+             const up2 = await gPut(
+               `/drives/${drive.id}/root:/Versionsprotokoll/${encodeURIComponent(file.name)}:/content`,
+               buf, file.type||'application/octet-stream'
+             );
+             fileWebUrl  = up2.webUrl || '';
+             driveItemId = up2.id || '';
+             log('Fallback drive OK:', fileWebUrl.substring(0,60));
+           } catch(e2){ log('Fallback FAIL:', e2.message); }
          }
-       } catch(ae) { log('Attachment exception:', ae.message); }
+       }
+
+       // Step 3b: Store drive item ID for fresh download URL
+       if (driveItemId && VP_COLS.FileItemId)
+         await patch(VP_COLS.FileItemId, driveItemId, 'DriveItemId').catch(()=>{});
 
       // Step 4: PATCH fields
       const patch = async (col,val,lbl) => {
@@ -2272,32 +2273,50 @@ async function vpAttachFile(itemId) {
 }
 
 
-function vpDownload(url, name) {
+async function vpDownload(url, name, driveItemIdHint) {
   if (!url) { toast('Keine Download-URL','info'); return; }
   const filename = name || decodeURIComponent(url.split('/').pop().split('?')[0]) || 'download';
-  if (url.includes('sharepoint.com')) {
-    // window.location.href: SP sends Content-Disposition:attachment → browser saves file
-    const dlUrl = url.includes('?') ? url + '&download=1' : url + '?download=1';
-    // Open in new tab — SP sends Content-Disposition:attachment so browser downloads it
-    // Tab closes itself after download starts; app stays open
-    window.open(dlUrl, '_blank');
-    toast('⬇ ' + filename, 'success');
-    return;
-  }
-  // Graph download URL — fetch as blob
   toast('⬇ Download läuft…','info');
-  getToken().then(tok =>
-    fetch(url, { headers: { Authorization: 'Bearer ' + tok } })
-  ).then(r => {
+
+  // Strategy: get a fresh @microsoft.graph.downloadUrl (CDN URL, no auth, no CORS)
+  // then fetch as blob → save dialog
+  try {
+    // If we have the drive item ID, fetch fresh downloadUrl directly
+    let cdnUrl = '';
+    if (driveItemIdHint && vpSiteId) {
+      try {
+        const d = await gGet(`/sites/${vpSiteId}/drive/items/${driveItemIdHint}?$select=@microsoft.graph.downloadUrl`);
+        cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
+      } catch {}
+    }
+    // If no direct ID, try to resolve by webUrl path
+    if (!cdnUrl && url.includes('sharepoint.com') && vpSiteId) {
+      try {
+        const urlObj = new URL(url);
+        const relPath = decodeURIComponent(urlObj.pathname);
+        const d = await gGet(`/sites/${vpSiteId}/drive/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
+        cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
+      } catch {}
+    }
+    // If still no CDN url, use Graph token with the original URL
+    const fetchUrl = cdnUrl || url;
+    const headers  = cdnUrl ? {} : { Authorization: 'Bearer ' + await getToken() };
+
+    const r = await fetch(fetchUrl, { headers });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.blob();
-  }).then(blob => {
+    const blob = await r.blob();
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = filename; a.style.display='none';
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.style.display = 'none';
     document.body.appendChild(a); a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); },2000);
-    toast('✓ Download gestartet','success');
-  }).catch(() => { window.location.href = url + '?download=1'; });
+    setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+    toast('✓ ' + filename + ' gespeichert', 'success');
+  } catch(e) {
+    console.warn('Download failed:', e.message);
+    toast('Download fehlgeschlagen: ' + e.message, 'error');
+    window.open(url, '_blank');
+  }
 }
 
 async function vpDownloadFresh(driveId, itemId, name) {
@@ -2812,7 +2831,9 @@ function renderMainVpTree(item, entries) {
       node.querySelector('.mv-act.dl')?.addEventListener('click', async e=>{
         e.stopPropagation();
         if (!dlUrl) { toast('Keine Download-URL.','info'); return; }
-        vpDownload(dlUrl, dlNm || ver + '_' + item.name);
+        // FileItemId column stores the SP Drive item ID for fresh downloadUrl
+        const driveItemId = (VP_COLS.FileItemId && f[VP_COLS.FileItemId]) || f.FileItemId || '';
+        vpDownload(dlUrl, dlNm || ver + '_' + item.name, driveItemId);
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
