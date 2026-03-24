@@ -2278,7 +2278,9 @@ function vpDownload(url, name) {
   if (url.includes('sharepoint.com')) {
     // window.location.href: SP sends Content-Disposition:attachment → browser saves file
     const dlUrl = url.includes('?') ? url + '&download=1' : url + '?download=1';
-    window.location.href = dlUrl;
+    // Open in new tab — SP sends Content-Disposition:attachment so browser downloads it
+    // Tab closes itself after download starts; app stays open
+    window.open(dlUrl, '_blank');
     toast('⬇ ' + filename, 'success');
     return;
   }
