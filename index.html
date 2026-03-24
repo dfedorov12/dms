@@ -1743,14 +1743,8 @@ function mkTreeNode(item, depth=0) {
       if(btn.title==='Herunterladen') {
         btn.addEventListener('click', async e=>{
           e.stopPropagation();
-          // Get the @microsoft.graph.downloadUrl (direct binary) then blob-fetch it
-          try {
-            const d = await gGet(`/drives/${drive.id}/items/${item.id}?$select=@microsoft.graph.downloadUrl,name`);
-            const u = d['@microsoft.graph.downloadUrl'] || item.webUrl;
-            vpDownload(u, item.name);
-          } catch {
-            vpDownload(item.webUrl, item.name);
-          }
+          // Use item's own drive — fetch fresh CDN downloadUrl directly
+          vpDownload(null, item.name, item.id, drive.id);
         });
       } else if(btn.title==='Versionen') {
         btn.addEventListener('click',e=>{e.stopPropagation();openVersionPanel(item);});
@@ -2157,6 +2151,7 @@ async function doVpUpload() {
         log('Drive upload OK, driveItemId:', driveItemId, 'webUrl:', fileWebUrl.substring(0,50));
       } catch(upErr) {
         log('Drive upload FAIL:', upErr.message);
+        toast(`Upload-Fehler: ${upErr.message}`, 'error');
       }
 
       // Step 3: Create list item (Title only — safest)
@@ -2264,7 +2259,7 @@ async function vpAttachFile(itemId) {
 }
 
 
-async function vpDownload(url, name, storedDriveItemId) {
+async function vpDownload(url, name, storedDriveItemId, itemDriveId) {
   if (!url) { toast('Keine Download-URL','info'); return; }
   const filename = name || decodeURIComponent(url.split('/').pop().split('?')[0]) || 'download';
 
@@ -2287,10 +2282,11 @@ async function vpDownload(url, name, storedDriveItemId) {
     let cdnUrl = '';
 
     // Step 1: direct item lookup via stored drive item ID
-    if (storedDriveItemId && vpSiteDriveId) {
+    const resolvedDriveId = itemDriveId || vpSiteDriveId;
+    if (storedDriveItemId && resolvedDriveId) {
       try {
-        log('\nStep 1: GET /drives/'+vpSiteDriveId+'/items/'+storedDriveItemId+'...');
-        const d = await gGet(`/drives/${vpSiteDriveId}/items/${storedDriveItemId}?$select=@microsoft.graph.downloadUrl`);
+        log('\nStep 1: GET /drives/'+resolvedDriveId+'/items/'+storedDriveItemId+'...');
+        const d = await gGet(`/drives/${resolvedDriveId}/items/${storedDriveItemId}?$select=@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
         log('Step 1 result:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl in response');
         log('Keys returned:', Object.keys(d).join(', '));
@@ -2306,7 +2302,7 @@ async function vpDownload(url, name, storedDriveItemId) {
         const urlObj = new URL(url);
         const relPath = decodeURIComponent(urlObj.pathname);
         log('\nStep 2: path lookup for', relPath.substring(0,60));
-        const d = await gGet(`/drives/${vpSiteDriveId}/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
+        const d = await gGet(`/drives/${resolvedDriveId}/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
         log('Step 2 result:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl');
       } catch(e) { log('Step 2 FAILED:', e.message); }
@@ -2856,7 +2852,7 @@ function renderMainVpTree(item, entries) {
       node.querySelector('.mv-act.dl')?.addEventListener('click', async e=>{
         e.stopPropagation();
         if (!dlUrl) { toast('Keine Download-URL.','info'); return; }
-        vpDownload(dlUrl, dlNm || ver + '_' + item.name, storedDriveItemId);
+        vpDownload(dlUrl, dlNm || ver + '_' + item.name, storedDriveItemId, vpSiteDriveId);
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
