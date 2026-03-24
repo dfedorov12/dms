@@ -849,6 +849,7 @@ const driveState   = {};
 
 // Version-log list state (resolved at startup)
 let vpSiteId      = null;
+let vpSiteDriveId = null;  // IT site default drive ID
 let vpSiteWebUrl  = 'https://dihag.sharepoint.com/sites/IT'; // hardcoded fallback
 let vpListId      = null;
 let vpListName    = '';   // display name for attachment URL path
@@ -1207,6 +1208,9 @@ async function initVpList() {
       vpColByDisplay[c.name.toLowerCase()] = c.name;
     });
 
+    const driveInfo = await gGet(`/sites/${vpSiteId}/drive?$select=id`);
+    vpSiteDriveId = driveInfo.id || null;
+    console.log('[VP] driveId:', vpSiteDriveId);
     resolveVpCols();
     console.log('[VP] List ready:', vpListName);
     console.log('[VP] ALL writable columns:');
@@ -2167,9 +2171,12 @@ async function doVpUpload() {
          }
        }
 
-       // Step 3b: Store drive item ID for fresh download URL
-       if (driveItemId && VP_COLS.FileItemId)
-         await patch(VP_COLS.FileItemId, driveItemId, 'DriveItemId').catch(()=>{});
+       // Step 3b: Store drive item ID in list for fresh download URL
+       // Try dedicated column first, fall back to FileItemId
+       if (driveItemId) {
+         const driveIdCol = vpColByDisplay['driveitemid'] || vpColByDisplay['drive item id'] || VP_COLS.FileItemId;
+         if (driveIdCol) await patch(driveIdCol, driveItemId, 'DriveItemId').catch(()=>{});
+       }
 
       // Step 4: PATCH fields
       const patch = async (col,val,lbl) => {
@@ -2267,32 +2274,48 @@ async function vpAttachFile(itemId) {
 }
 
 
-async function vpDownload(url, name) {
+async function vpDownload(url, name, storedDriveItemId) {
   if (!url) { toast('Keine Download-URL','info'); return; }
   const filename = name || decodeURIComponent(url.split('/').pop().split('?')[0]) || 'download';
   toast('⬇ Download…','info');
   try {
-    // Use Graph /shares endpoint to resolve ANY SharePoint URL to a DriveItem
-    // Encoding: base64url("u!" + url)  →  no CORS, no auth on CDN url
-    const encoded = 'u!' + btoa(url).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
-    const item = await gGet(`/shares/${encoded}/driveItem?$select=id,@microsoft.graph.downloadUrl`);
-    const cdnUrl = item['@microsoft.graph.downloadUrl'];
-    if (!cdnUrl) throw new Error('Keine downloadUrl');
-    // CDN url needs no auth — fetch as blob
+    let cdnUrl = '';
+
+    // Method 1: Use stored drive item ID → direct Graph lookup (most reliable)
+    if (storedDriveItemId && vpSiteDriveId) {
+      try {
+        const d = await gGet(`/drives/${vpSiteDriveId}/items/${storedDriveItemId}?$select=@microsoft.graph.downloadUrl`);
+        cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
+      } catch(e) { console.warn('Direct item lookup failed:', e.message); }
+    }
+
+    // Method 2: Resolve path from webUrl via site drive
+    if (!cdnUrl && url.includes('sharepoint.com') && vpSiteDriveId) {
+      try {
+        const urlObj = new URL(url);
+        const relPath = decodeURIComponent(urlObj.pathname);
+        const d = await gGet(`/drives/${vpSiteDriveId}/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
+        cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
+      } catch(e) { console.warn('Path lookup failed:', e.message); }
+    }
+
+    if (!cdnUrl) throw new Error('downloadUrl nicht auflösbar');
+
+    // CDN URL is pre-authenticated — no auth header needed, no CORS issue
     const r = await fetch(cdnUrl);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const blob = await r.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
-    a.style.display='none';
+    a.style.display = 'none';
     document.body.appendChild(a); a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); },2000);
-    toast('✓ '+filename+' gespeichert','success');
+    setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+    toast('✓ ' + filename + ' gespeichert', 'success');
   } catch(e) {
-    console.warn('Download failed:', e.message);
-    toast('Download: '+e.message,'error');
-    window.open(url,'_blank');
+    console.warn('Download error:', e.message);
+    toast('Download fehlgeschlagen — öffne in neuem Tab', 'error');
+    window.open(url, '_blank');
   }
 }
 
@@ -2808,7 +2831,9 @@ function renderMainVpTree(item, entries) {
       node.querySelector('.mv-act.dl')?.addEventListener('click', async e=>{
         e.stopPropagation();
         if (!dlUrl) { toast('Keine Download-URL.','info'); return; }
-        vpDownload(dlUrl, dlNm || ver + '_' + item.name);
+        // Try to get driveItemId from FileItemId column (stored at upload time)
+        const storedDriveItemId = (VP_COLS.FileItemId && f[VP_COLS.FileItemId]) || f.FileItemId || f.DriveItemId || '';
+        vpDownload(dlUrl, dlNm || ver + '_' + item.name, storedDriveItemId);
       });
       // Edit button
       const editBtn = node.querySelector('.mv-act.edit');
