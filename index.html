@@ -2260,81 +2260,80 @@ async function vpAttachFile(itemId) {
 
 
 async function vpDownload(url, name, storedDriveItemId, itemDriveId) {
-  if (!url) { toast('Keine Download-URL','info'); return; }
-  const filename = name || decodeURIComponent(url.split('/').pop().split('?')[0]) || 'download';
+  const filename = name || (url ? decodeURIComponent(url.split('/').pop().split('?')[0]) : 'download');
 
   // Debug overlay
   const dbg = document.createElement('div');
-  dbg.style.cssText = 'position:fixed;bottom:10px;right:10px;width:500px;max-height:400px;overflow:auto;background:#0a1f3c;color:#7dd3fc;font-size:11px;font-family:monospace;padding:12px 14px;border-radius:8px;z-index:99999;white-space:pre-wrap;line-height:1.5;';
-  const log = (...a) => { dbg.textContent += a.join(' ') + '\n'; console.log(...a); };
+  dbg.style.cssText = 'position:fixed;bottom:10px;right:10px;width:500px;max-height:380px;overflow:auto;background:#0a1f3c;color:#7dd3fc;font-size:11px;font-family:monospace;padding:12px;border-radius:8px;z-index:99999;white-space:pre-wrap;';
+  const logLines = [];
+  const log = (...a) => { const s = a.join(' '); logLines.push(s); dbg.textContent = logLines.join('\n'); console.log(s); };
   const cb = document.createElement('button');
-  cb.textContent='✕'; cb.style.cssText='position:sticky;top:0;float:right;background:none;border:none;color:#fff;cursor:pointer;font-size:16px;';
-  cb.onclick=()=>dbg.remove(); dbg.appendChild(cb);
+  cb.textContent = '✕'; cb.style.cssText = 'position:absolute;top:6px;right:8px;background:none;border:none;color:#fff;cursor:pointer;font-size:16px;';
+  cb.onclick = () => dbg.remove(); dbg.appendChild(cb);
   document.body.appendChild(dbg);
 
   log('=== DOWNLOAD DEBUG ===');
-  log('url:', url.substring(0,80));
+  log('url:', url ? url.substring(0,80) : '(null - using item ID directly)');
   log('name:', filename);
-  log('storedDriveItemId:', storedDriveItemId||'(none)');
-  log('vpSiteDriveId:', vpSiteDriveId||'(none)');
+  log('storedDriveItemId:', storedDriveItemId || '(none)');
+  log('itemDriveId:', itemDriveId || '(none)');
+  log('vpSiteDriveId:', vpSiteDriveId || '(none)');
 
   try {
     let cdnUrl = '';
-
-    // Step 1: direct item lookup via stored drive item ID
     const resolvedDriveId = itemDriveId || vpSiteDriveId;
+
+    // Step 1: direct item lookup (most reliable — works for both original and version files)
     if (storedDriveItemId && resolvedDriveId) {
+      log('\nStep 1: /drives/' + resolvedDriveId.substring(0,20) + '.../items/' + storedDriveItemId.substring(0,20) + '...');
       try {
-        log('\nStep 1: GET /drives/'+resolvedDriveId+'/items/'+storedDriveItemId+'...');
         const d = await gGet(`/drives/${resolvedDriveId}/items/${storedDriveItemId}?$select=@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
-        log('Step 1 result:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl in response');
-        log('Keys returned:', Object.keys(d).join(', '));
+        log('Step 1:', cdnUrl ? 'GOT CDN URL ✓' : ('no downloadUrl — keys: ' + Object.keys(d).join(',')));
       } catch(e) { log('Step 1 FAILED:', e.message); }
     } else {
-      log('\nStep 1 skipped (missing driveItemId or vpSiteDriveId)');
+      log('\nStep 1 skipped — storedDriveItemId=' + (storedDriveItemId||'empty') + ' resolvedDriveId=' + (resolvedDriveId||'empty'));
     }
 
-    // Step 2: resolve by Drive path (only for Drive URLs, not List Attachments)
-    if (!cdnUrl && url.includes('sharepoint.com') && vpSiteDriveId
-        && !url.includes('/Lists/')) {
+    // Step 2: resolve webUrl via Drive path (Drive files only, not List Attachments)
+    const isListAttachment = url && url.includes('/Lists/') && url.includes('/Attachments/');
+    if (!cdnUrl && url && !isListAttachment && resolvedDriveId) {
       try {
-        const urlObj = new URL(url);
-        const relPath = decodeURIComponent(urlObj.pathname);
-        log('\nStep 2: path lookup for', relPath.substring(0,60));
-        const d = await gGet(`/drives/${resolvedDriveId}/root:${relPath}?$select=@microsoft.graph.downloadUrl`);
+        const relPath = decodeURIComponent(new URL(url).pathname);
+        log('\nStep 2: path=' + relPath.substring(0, 60));
+        const d = await gGet(`/drives/${resolvedDriveId}/root:${relPath}?$select=id,@microsoft.graph.downloadUrl`);
         cdnUrl = d['@microsoft.graph.downloadUrl'] || '';
-        log('Step 2 result:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl');
+        log('Step 2:', cdnUrl ? 'GOT CDN URL ✓' : 'no downloadUrl, id=' + (d.id||'?'));
       } catch(e) { log('Step 2 FAILED:', e.message); }
-    } else if (url.includes('/Lists/')) {
-      log('\nStep 2 skipped: URL is a List Attachment (not in Drive)');
+    } else if (isListAttachment) {
+      log('\nStep 2 skipped: List Attachment URL (not in Drive)');
+      log('These old entries cannot be downloaded via CDN.');
+      log('Please re-upload the version to get a Drive URL.');
     }
 
     if (!cdnUrl) {
-      log('\nNO CDN URL — cannot download without CORS');
-      log('vpSiteDriveId:', vpSiteDriveId);
-      log('storedDriveItemId:', storedDriveItemId);
-      throw new Error('downloadUrl nicht verfügbar');
+      throw new Error('Kein CDN-Download-Link — bitte Version neu hochladen');
     }
 
-    log('\nFetching CDN URL (no auth)...');
+    log('\nFetching CDN URL...');
     const r = await fetch(cdnUrl);
-    log('Fetch status:', r.status, r.statusText);
+    log('HTTP', r.status);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const blob = await r.blob();
-    log('Blob size:', blob.size, 'type:', blob.type);
+    log('Blob:', blob.size, 'bytes,', blob.type);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
     a.style.display = 'none';
     document.body.appendChild(a); a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
+    setTimeout(() => { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 2000);
     log('\n✓ DOWNLOAD TRIGGERED');
-    setTimeout(()=>dbg.remove(), 10000);
+    setTimeout(() => dbg.remove(), 8000);
     toast('✓ ' + filename, 'success');
+
   } catch(e) {
-    log('\nFINAL ERROR:', e.message);
-    toast('Download fehlgeschlagen: ' + e.message, 'error');
+    log('\nERROR: ' + e.message);
+    toast('Download: ' + e.message, 'error');
   }
 }
 
