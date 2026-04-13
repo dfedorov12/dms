@@ -313,7 +313,14 @@ async function initApp() {
 
   const redirectUri = location.href.split('?')[0].split('#')[0];
   const cfg = {
-    auth: { clientId: CLIENT_ID, authority: `https://login.microsoftonline.com/${TENANT_ID}`, redirectUri },
+    auth: {
+      clientId:        CLIENT_ID,
+      authority:       `https://login.microsoftonline.com/${TENANT_ID}`,
+      redirectUri,
+      // knownAuthorities prevents MSAL from fetching OIDC metadata over the network
+      // — that fetch is the most common cause of initialize() hanging
+      knownAuthorities: ['login.microsoftonline.com']
+    },
     cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
 
