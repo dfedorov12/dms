@@ -302,43 +302,53 @@ function showHint()    { const e=document.getElementById('boot-hint'); if(e) e.s
 function hideHint()    { const e=document.getElementById('boot-hint'); if(e) e.style.display='none'; }
 
 async function initApp() {
-  bootMsg('Initialisiere…');    // if user sees "Laden…" → old cached page, hard-reload needed
+  bootMsg('Initialisiere…');
   bootSpinner(true);
 
-  // Clear only interaction_in_progress to avoid hang loops
+  // Clear interaction_in_progress lock to prevent MSAL login loops
   try {
     for (const k of Object.keys(sessionStorage))
       if (k.includes('interaction_in_progress')) sessionStorage.removeItem(k);
   } catch {}
 
-  const redirectUri = location.href.split('?')[0].split('#')[0];
-  const cfg = {
-    auth: {
-      clientId:        CLIENT_ID,
-      authority:       `https://login.microsoftonline.com/${TENANT_ID}`,
-      redirectUri,
-      // knownAuthorities prevents MSAL from fetching OIDC metadata over the network
-      // — that fetch is the most common cause of initialize() hanging
-      knownAuthorities: ['login.microsoftonline.com']
-    },
-    cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
-  };
+  // Guard: MSAL library must be loaded (CDN could fail)
+  if (typeof msal === 'undefined') {
+    bootErr('MSAL-Bibliothek konnte nicht geladen werden.<br>Bitte Seite neu laden (F5).');
+    showBootBtn();
+    return;
+  }
 
-  msalApp = new msal.PublicClientApplication(cfg);
+  // IMPORTANT: redirectUri MUST be the registered Azure AD URI (tickets), not dms URL.
+  // In popup flow the popup processes the auth code internally — user never sees tickets page.
+  const redirectUri = 'https://dfedorov12.github.io/tickets/';
 
-  // Race: initialize() vs 2-second timeout.
-  // Even if timeout wins, getAllAccounts() reads localStorage directly and still works
-  // (Tickets & DMS share the same origin → same localStorage).
-  let initOk = false;
-  await Promise.race([
-    msalApp.initialize().then(() => { initOk = true; }).catch(() => {}),
-    new Promise(res => setTimeout(res, 2000))
-  ]);
+  let cfg;
+  try {
+    cfg = {
+      auth: {
+        clientId:        CLIENT_ID,
+        authority:       `https://login.microsoftonline.com/${TENANT_ID}`,
+        redirectUri,
+        knownAuthorities: ['login.microsoftonline.com']
+      },
+      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
+    };
+    msalApp = new msal.PublicClientApplication(cfg);
+  } catch(e) {
+    bootErr('MSAL-Initialisierungsfehler: ' + e.message);
+    showBootBtn();
+    return;
+  }
 
-  if (initOk) { try { await msalApp.handleRedirectPromise(); } catch {} }
+  // initialize() is optional in MSAL 2.x and can block on OIDC metadata fetch.
+  // Skip it entirely — getAllAccounts() reads directly from localStorage cache.
 
   let accounts = [];
-  try { accounts = msalApp.getAllAccounts(); } catch {}
+  try { accounts = msalApp.getAllAccounts(); } catch(e) {
+    bootErr('Konto-Lesefehler: ' + e.message);
+    showBootBtn();
+    return;
+  }
 
   if (accounts.length > 0) {
     account = accounts[0];
