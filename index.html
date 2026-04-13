@@ -321,20 +321,19 @@ async function initApp() {
     cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
 
-  try {
-    msalApp = new msal.PublicClientApplication(cfg);
-    // Timeout in case initialize() hangs (BroadcastChannel or pending-interaction issue)
-    await Promise.race([
-      msalApp.initialize(),
-      new Promise((_,rej) => setTimeout(() => rej(new Error('initialize() Timeout – bitte Seite neu laden')), 7000))
-    ]);
-  } catch(e) {
-    bootErr(`Fehler: <code>${e.message||e}</code><br>Redirect-URI <code>${redirectUri}</code> muss als SPA in Azure eingetragen sein.`);
-    showBootBtn(); showHint();
-    return;
-  }
+  msalApp = new msal.PublicClientApplication(cfg);
 
-  try { await msalApp.handleRedirectPromise(); } catch {}
+  // initialize() can hang due to BroadcastChannel issues — timeout after 6s and continue anyway.
+  // getAllAccounts() reads localStorage directly and works even if initialize() didn't finish.
+  let initOk = false;
+  try {
+    await Promise.race([
+      msalApp.initialize().then(() => { initOk = true; }),
+      new Promise(res => setTimeout(res, 6000))   // resolve (not reject) so we always continue
+    ]);
+  } catch { /* ignore init errors, try cache anyway */ }
+
+  try { if (initOk) await msalApp.handleRedirectPromise(); } catch {}
 
   const accounts = msalApp.getAllAccounts();
   if (accounts.length > 0) {
