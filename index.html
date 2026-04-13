@@ -148,7 +148,7 @@ tr:hover .file-actions{opacity:1;}
 <div id="boot">
   <div class="boot-spinner" id="boot-spinner"></div>
   <div class="boot-title">DIHAG · DMS</div>
-  <div class="boot-sub" id="boot-sub">Initialisiere…</div>
+  <div class="boot-sub" id="boot-sub">Laden…</div>
   <div class="boot-err" id="boot-err" style="display:none;"></div>
   <button class="boot-btn" id="boot-btn" style="display:none;" onclick="doLogin()">🔐 Mit Microsoft anmelden</button>
   <div id="boot-hint" style="display:none;font-size:11px;color:var(--text-muted);margin-top:6px;">Falls der Spinner hängt: Popup-Blocker prüfen · <a href="javascript:location.reload()" style="color:var(--blue);">Seite neu laden</a></div>
@@ -302,10 +302,10 @@ function showHint()    { const e=document.getElementById('boot-hint'); if(e) e.s
 function hideHint()    { const e=document.getElementById('boot-hint'); if(e) e.style.display='none'; }
 
 async function initApp() {
-  bootMsg('Initialisiere…');
+  bootMsg('Initialisiere…');    // if user sees "Laden…" → old cached page, hard-reload needed
   bootSpinner(true);
 
-  // Only clear interaction_in_progress (the known hang cause) — leave token cache intact
+  // Clear only interaction_in_progress to avoid hang loops
   try {
     for (const k of Object.keys(sessionStorage))
       if (k.includes('interaction_in_progress')) sessionStorage.removeItem(k);
@@ -313,33 +313,30 @@ async function initApp() {
 
   const redirectUri = location.href.split('?')[0].split('#')[0];
   const cfg = {
-    auth: {
-      clientId:    CLIENT_ID,
-      authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
-      redirectUri  // muss als SPA in Azure eingetragen sein
-    },
+    auth: { clientId: CLIENT_ID, authority: `https://login.microsoftonline.com/${TENANT_ID}`, redirectUri },
     cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
 
   msalApp = new msal.PublicClientApplication(cfg);
 
-  // initialize() can hang due to BroadcastChannel issues — timeout after 6s and continue anyway.
-  // getAllAccounts() reads localStorage directly and works even if initialize() didn't finish.
+  // Race: initialize() vs 2-second timeout.
+  // Even if timeout wins, getAllAccounts() reads localStorage directly and still works
+  // (Tickets & DMS share the same origin → same localStorage).
   let initOk = false;
-  try {
-    await Promise.race([
-      msalApp.initialize().then(() => { initOk = true; }),
-      new Promise(res => setTimeout(res, 6000))   // resolve (not reject) so we always continue
-    ]);
-  } catch { /* ignore init errors, try cache anyway */ }
+  await Promise.race([
+    msalApp.initialize().then(() => { initOk = true; }).catch(() => {}),
+    new Promise(res => setTimeout(res, 2000))
+  ]);
 
-  try { if (initOk) await msalApp.handleRedirectPromise(); } catch {}
+  if (initOk) { try { await msalApp.handleRedirectPromise(); } catch {} }
 
-  const accounts = msalApp.getAllAccounts();
+  let accounts = [];
+  try { accounts = msalApp.getAllAccounts(); } catch {}
+
   if (accounts.length > 0) {
     account = accounts[0];
     bootMsg('Angemeldet als ' + (account.name || account.username || '…'));
-    try { bootDone(); } catch(e) { bootErr('Startfehler: '+e.message); showBootBtn(); }
+    try { bootDone(); } catch(e) { bootErr('Startfehler: ' + e.message); showBootBtn(); }
     return;
   }
 
