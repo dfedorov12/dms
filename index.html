@@ -305,27 +305,31 @@ async function initApp() {
   bootMsg('Initialisiere…');
   bootSpinner(true);
 
-  // Clear stale MSAL state that causes interaction_in_progress hang
+  // Only clear interaction_in_progress (the known hang cause) — leave token cache intact
   try {
-    Object.keys(sessionStorage)
-      .filter(k => k.includes('msal') || k.includes('login') || k.includes('interaction'))
-      .forEach(k => sessionStorage.removeItem(k));
+    for (const k of Object.keys(sessionStorage))
+      if (k.includes('interaction_in_progress')) sessionStorage.removeItem(k);
   } catch {}
 
+  const redirectUri = location.href.split('?')[0].split('#')[0];
   const cfg = {
     auth: {
       clientId:    CLIENT_ID,
       authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
-      redirectUri: location.href.split('?')[0].split('#')[0]   // muss als SPA in Azure eingetragen sein
+      redirectUri  // muss als SPA in Azure eingetragen sein
     },
     cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
 
   try {
     msalApp = new msal.PublicClientApplication(cfg);
-    await msalApp.initialize();
+    // Timeout in case initialize() hangs (BroadcastChannel or pending-interaction issue)
+    await Promise.race([
+      msalApp.initialize(),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('initialize() Timeout – bitte Seite neu laden')), 7000))
+    ]);
   } catch(e) {
-    bootErr(`Initialisierungsfehler: <code>${e.message||e}</code><br>Redirect-URI <code>${cfg.auth.redirectUri}</code> muss als SPA in Azure eingetragen sein.`);
+    bootErr(`Fehler: <code>${e.message||e}</code><br>Redirect-URI <code>${redirectUri}</code> muss als SPA in Azure eingetragen sein.`);
     showBootBtn(); showHint();
     return;
   }
