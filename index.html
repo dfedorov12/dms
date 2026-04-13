@@ -291,20 +291,54 @@ const API       = 'https://graph.microsoft.com/v1.0';
 
 let msalApp, account;
 
-// Use the registered Tickets redirect URI (dfedorov12.github.io/dms/ is not registered in Azure AD)
-async function initAuth() {
-  const redirectUri = 'https://dfedorov12.github.io/tickets/';
+// ── MSAL boot (original pattern) ─────────────────────────────────
+async function initApp() {
+  bootSub('Initialisiere…');
+  bootSpinner(true);
+
+  // Clear stale MSAL interaction_in_progress state that causes infinite hang
+  try {
+    Object.keys(sessionStorage)
+      .filter(k => k.includes('msal') || k.includes('login') || k.includes('interaction'))
+      .forEach(k => sessionStorage.removeItem(k));
+  } catch {}
+
   const cfg = {
-    auth:{ clientId:CLIENT_ID, authority:`https://login.microsoftonline.com/${TENANT_ID}`, redirectUri },
-    cache:{ cacheLocation:'localStorage', storeAuthStateInCookie:true }
+    auth: {
+      clientId:   CLIENT_ID,
+      authority:  `https://login.microsoftonline.com/${TENANT_ID}`,
+      redirectUri: location.href.split('?')[0].split('#')[0]
+    },
+    cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
-  msalApp = new msal.PublicClientApplication(cfg);
-  await msalApp.initialize();
-  await msalApp.handleRedirectPromise();
+
+  try {
+    msalApp = new msal.PublicClientApplication(cfg);
+    await msalApp.initialize();
+  } catch(e) {
+    bootSpinner(false);
+    const el = $id('boot-err');
+    el.innerHTML = `Initialisierungsfehler: <code>${esc(e.message||e)}</code><br>Redirect-URI <code>${esc(cfg.auth.redirectUri)}</code> muss als SPA in Azure eingetragen sein.`;
+    el.style.display = 'block';
+    $id('boot-btn').style.display = 'block';
+    return;
+  }
+
+  try { await msalApp.handleRedirectPromise(); } catch {}
+
   const accounts = msalApp.getAllAccounts();
-  if (accounts.length) { account = accounts[0]; return true; }
-  return false;
+  if (accounts.length > 0) {
+    account = accounts[0];
+    bootDone();
+    return;
+  }
+
+  bootSpinner(false);
+  bootSub('Bitte mit Microsoft 365 anmelden.');
+  $id('boot-btn').style.display = 'block';
 }
+function bootSub(txt) { $id('boot-sub').textContent = txt; }
+function bootSpinner(on) { $id('boot-spinner').style.display = on ? 'block' : 'none'; }
 
 let currentDriveId = null;
 let currentFolderId = null; // null = root
@@ -354,14 +388,25 @@ async function getToken() {
 }
 async function doLogin() {
   $id('boot-btn').style.display='none';
-  $id('boot-sub').textContent='Anmeldung läuft…';
+  $id('boot-err').style.display='none';
+  bootSpinner(true);
+  bootSub('Anmeldungs-Popup öffnet sich…');
   try {
-    const r = await msalApp.loginPopup({scopes:SCOPES});
+    const r = await msalApp.loginPopup({scopes:SCOPES, prompt:'select_account'});
     account = r.account;
+    bootSub('Angemeldet ✓ Lade App…');
     bootDone();
   } catch(e) {
-    $id('boot-err').textContent = e.message;
-    $id('boot-err').style.display='block';
+    bootSpinner(false);
+    const msg = e.message || String(e);
+    const el = $id('boot-err');
+    if (msg.includes('popup') || msg.includes('Popup'))
+      el.textContent = 'Popup wurde blockiert. Popup-Blocker für diese Seite deaktivieren, dann erneut klicken.';
+    else if (msg.includes('cancelled') || msg.includes('closed') || msg.includes('denied'))
+      el.textContent = 'Anmeldung abgebrochen.';
+    else
+      el.textContent = 'Fehler: ' + msg;
+    el.style.display='block';
     $id('boot-btn').style.display='block';
     $id('boot-btn').textContent='Erneut versuchen';
   }
@@ -773,23 +818,7 @@ document.querySelectorAll('.modal-ov').forEach(ov=>{
 // ════════════════════════════════════════════════════════════════
 // BOOT — identical pattern to Tickets app
 // ════════════════════════════════════════════════════════════════
-(async()=>{
-  try {
-    const ok = await initAuth();
-    if (ok) {
-      bootDone();
-    } else {
-      $id('boot-sub').textContent = 'Bitte anmelden';
-      $id('boot-spinner').style.display = 'none';
-      $id('boot-btn').style.display = 'block';
-    }
-  } catch(e) {
-    $id('boot-err').textContent = e.message;
-    $id('boot-err').style.display = 'block';
-    $id('boot-spinner').style.display = 'none';
-    $id('boot-btn').style.display = 'block';
-  }
-})();
+initApp();
 </script>
 </body>
 </html>
