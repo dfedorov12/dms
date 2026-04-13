@@ -399,11 +399,19 @@ async function gPatch(path, body) {
 
 // ── BOOT FLOW ────────────────────────────────────────────────────
 (async()=>{
-  const loggedIn = await initMsal();
-  if (loggedIn) {
-    bootDone();
-  } else {
-    $id('boot-sub').textContent='Bitte anmelden.';
+  try {
+    const loggedIn = await initMsal();
+    if (loggedIn) {
+      bootDone();
+    } else {
+      $id('boot-sub').textContent='Bitte anmelden.';
+      $id('boot-spinner').style.display='none';
+      $id('boot-btn').style.display='block';
+    }
+  } catch(e) {
+    $id('boot-sub').textContent='Anmeldung fehlgeschlagen.';
+    $id('boot-err').textContent = e.message;
+    $id('boot-err').style.display='block';
     $id('boot-spinner').style.display='none';
     $id('boot-btn').style.display='block';
   }
