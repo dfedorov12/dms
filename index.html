@@ -299,7 +299,7 @@ async function initMsal() {
   };
   msalApp = new msal.PublicClientApplication(cfg);
   await msalApp.initialize();
-  await msalApp.handleRedirectPromise();
+  // No handleRedirectPromise() — we use loginPopup, not redirect flow
   const accounts = msalApp.getAllAccounts();
   if (accounts.length) { account = accounts[0]; return true; }
   return false;
