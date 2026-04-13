@@ -148,9 +148,10 @@ tr:hover .file-actions{opacity:1;}
 <div id="boot">
   <div class="boot-spinner" id="boot-spinner"></div>
   <div class="boot-title">DIHAG · DMS</div>
-  <div class="boot-sub" id="boot-sub">Anmeldung läuft…</div>
+  <div class="boot-sub" id="boot-sub">Initialisiere…</div>
   <div class="boot-err" id="boot-err" style="display:none;"></div>
-  <button class="boot-btn" id="boot-btn" style="display:none;" onclick="doLogin()">Anmelden</button>
+  <button class="boot-btn" id="boot-btn" style="display:none;" onclick="doLogin()">🔐 Mit Microsoft anmelden</button>
+  <div id="boot-hint" style="display:none;font-size:11px;color:var(--text-muted);margin-top:6px;">Falls der Spinner hängt: Popup-Blocker prüfen · <a href="javascript:location.reload()" style="color:var(--blue);">Seite neu laden</a></div>
 </div>
 
 <!-- APP -->
@@ -291,32 +292,31 @@ const API       = 'https://graph.microsoft.com/v1.0';
 
 let msalApp, account;
 
-// ── MSAL boot ─────────────────────────────────────────────────────
-function bootSub(txt) { const el = document.getElementById('boot-sub'); if(el) el.textContent = txt; }
-function bootSpinner(on) { const el = document.getElementById('boot-spinner'); if(el) el.style.display = on ? 'block' : 'none'; }
+// ── MSAL boot helpers (original pattern) ─────────────────────────
+function bootMsg(txt)  { const e=document.getElementById('boot-sub');  if(e) e.textContent=txt; }
+function bootErr(html) { const e=document.getElementById('boot-err');  if(e){e.innerHTML=html;e.style.display='block';} bootMsg(''); bootSpinner(false); }
+function showBootBtn() { const e=document.getElementById('boot-btn');  if(e) e.style.display='block'; }
+function hideBootBtn() { const e=document.getElementById('boot-btn');  if(e) e.style.display='none'; }
+function bootSpinner(on){ const e=document.getElementById('boot-spinner'); if(e) e.style.display=on?'block':'none'; }
+function showHint()    { const e=document.getElementById('boot-hint'); if(e) e.style.display='block'; }
+function hideHint()    { const e=document.getElementById('boot-hint'); if(e) e.style.display='none'; }
 
 async function initApp() {
-  bootSub('Initialisiere…');
+  bootMsg('Initialisiere…');
   bootSpinner(true);
 
-  // Clear interaction_in_progress flag only — do NOT clear when a redirect response
-  // is being processed (popup carries auth code in URL hash)
-  const inRedirect = location.href.includes('code=') || location.href.includes('error=');
-  if (!inRedirect) {
-    try {
-      Object.keys(sessionStorage)
-        .filter(k => k.includes('interaction_in_progress'))
-        .forEach(k => sessionStorage.removeItem(k));
-    } catch {}
-  }
+  // Clear stale MSAL state that causes interaction_in_progress hang
+  try {
+    Object.keys(sessionStorage)
+      .filter(k => k.includes('msal') || k.includes('login') || k.includes('interaction'))
+      .forEach(k => sessionStorage.removeItem(k));
+  } catch {}
 
   const cfg = {
     auth: {
       clientId:    CLIENT_ID,
       authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
-      // Use the registered SPA redirect URI from the Tickets app registration.
-      // loginPopup redirects the popup window here; MSAL posts the result back via postMessage.
-      redirectUri: 'https://dfedorov12.github.io/tickets/'
+      redirectUri: location.href.split('?')[0].split('#')[0]   // muss als SPA in Azure eingetragen sein
     },
     cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
@@ -325,10 +325,8 @@ async function initApp() {
     msalApp = new msal.PublicClientApplication(cfg);
     await msalApp.initialize();
   } catch(e) {
-    bootSpinner(false);
-    const el = document.getElementById('boot-err');
-    if(el) { el.textContent = 'Initialisierungsfehler: ' + (e.message||e); el.style.display = 'block'; }
-    document.getElementById('boot-btn').style.display = 'block';
+    bootErr(`Initialisierungsfehler: <code>${e.message||e}</code><br>Redirect-URI <code>${cfg.auth.redirectUri}</code> muss als SPA in Azure eingetragen sein.`);
+    showBootBtn(); showHint();
     return;
   }
 
@@ -337,13 +335,37 @@ async function initApp() {
   const accounts = msalApp.getAllAccounts();
   if (accounts.length > 0) {
     account = accounts[0];
-    bootDone();
+    bootMsg('Angemeldet als ' + (account.name || account.username || '…'));
+    try { bootDone(); } catch(e) { bootErr('Startfehler: '+e.message); showBootBtn(); }
     return;
   }
 
   bootSpinner(false);
-  bootSub('Bitte mit Microsoft 365 anmelden.');
-  document.getElementById('boot-btn').style.display = 'block';
+  bootMsg('Bitte mit Microsoft 365 anmelden.');
+  showBootBtn(); showHint();
+}
+
+async function doLogin() {
+  hideBootBtn(); hideHint();
+  document.getElementById('boot-err').style.display='none';
+  bootSpinner(true);
+  bootMsg('Anmeldungs-Popup öffnet sich…');
+  try {
+    const r = await msalApp.loginPopup({scopes:SCOPES, prompt:'select_account'});
+    account = r.account;
+    bootMsg('Angemeldet ✓ Lade App…');
+    bootDone();
+  } catch(e) {
+    bootSpinner(false);
+    const msg = e.message || String(e);
+    if (msg.includes('popup') || msg.includes('Popup'))
+      bootErr('Popup wurde blockiert.<br><strong>Popup-Blocker deaktivieren</strong> und erneut klicken.');
+    else if (msg.includes('cancelled') || msg.includes('closed') || msg.includes('denied') || msg.includes('aborted'))
+      bootErr('Anmeldung abgebrochen.');
+    else
+      bootErr('Fehler: <code>'+msg+'</code>');
+    showBootBtn(); showHint();
+  }
 }
 
 let currentDriveId = null;
@@ -391,31 +413,6 @@ async function getToken() {
   const req = { scopes:SCOPES, account };
   try { return (await msalApp.acquireTokenSilent(req)).accessToken; }
   catch { return (await msalApp.acquireTokenPopup(req)).accessToken; }
-}
-async function doLogin() {
-  $id('boot-btn').style.display='none';
-  $id('boot-err').style.display='none';
-  bootSpinner(true);
-  bootSub('Anmeldungs-Popup öffnet sich…');
-  try {
-    const r = await msalApp.loginPopup({scopes:SCOPES, prompt:'select_account'});
-    account = r.account;
-    bootSub('Angemeldet ✓ Lade App…');
-    bootDone();
-  } catch(e) {
-    bootSpinner(false);
-    const msg = e.message || String(e);
-    const el = $id('boot-err');
-    if (msg.includes('popup') || msg.includes('Popup'))
-      el.textContent = 'Popup wurde blockiert. Popup-Blocker für diese Seite deaktivieren, dann erneut klicken.';
-    else if (msg.includes('cancelled') || msg.includes('closed') || msg.includes('denied'))
-      el.textContent = 'Anmeldung abgebrochen.';
-    else
-      el.textContent = 'Fehler: ' + msg;
-    el.style.display='block';
-    $id('boot-btn').style.display='block';
-    $id('boot-btn').textContent='Erneut versuchen';
-  }
 }
 function bootDone() {
   $id('boot').style.display='none';
