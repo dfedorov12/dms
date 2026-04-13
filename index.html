@@ -291,7 +291,8 @@ const API       = 'https://graph.microsoft.com/v1.0';
 
 let msalApp, account;
 
-async function initMsal() {
+// Identical to Tickets auth
+async function initAuth() {
   const redirectUri = window.location.href.split('?')[0].split('#')[0];
   const cfg = {
     auth:{ clientId:CLIENT_ID, authority:`https://login.microsoftonline.com/${TENANT_ID}`, redirectUri },
@@ -299,7 +300,7 @@ async function initMsal() {
   };
   msalApp = new msal.PublicClientApplication(cfg);
   await msalApp.initialize();
-  // No handleRedirectPromise() — we use loginPopup, not redirect flow
+  await msalApp.handleRedirectPromise();
   const accounts = msalApp.getAllAccounts();
   if (accounts.length) { account = accounts[0]; return true; }
   return false;
@@ -362,6 +363,7 @@ async function doLogin() {
     $id('boot-err').textContent = e.message;
     $id('boot-err').style.display='block';
     $id('boot-btn').style.display='block';
+    $id('boot-btn').textContent='Erneut versuchen';
   }
 }
 function bootDone() {
@@ -396,26 +398,6 @@ async function gPatch(path, body) {
   if (!r.ok) throw new Error(`Graph PATCH ${r.status}`);
   return r.json().catch(()=>({}));
 }
-
-// ── BOOT FLOW ────────────────────────────────────────────────────
-(async()=>{
-  try {
-    const loggedIn = await initMsal();
-    if (loggedIn) {
-      bootDone();
-    } else {
-      $id('boot-sub').textContent='Bitte anmelden.';
-      $id('boot-spinner').style.display='none';
-      $id('boot-btn').style.display='block';
-    }
-  } catch(e) {
-    $id('boot-sub').textContent='Anmeldung fehlgeschlagen.';
-    $id('boot-err').textContent = e.message;
-    $id('boot-err').style.display='block';
-    $id('boot-spinner').style.display='none';
-    $id('boot-btn').style.display='block';
-  }
-})();
 
 // ── SITE LOADING ─────────────────────────────────────────────────
 async function loadDefaultSite() {
@@ -787,6 +769,27 @@ function closeModal(id) { $id(id).classList.remove('open'); }
 document.querySelectorAll('.modal-ov').forEach(ov=>{
   ov.addEventListener('click', e=>{ if(e.target===ov) ov.classList.remove('open'); });
 });
+
+// ════════════════════════════════════════════════════════════════
+// BOOT — identical pattern to Tickets app
+// ════════════════════════════════════════════════════════════════
+(async()=>{
+  try {
+    const ok = await initAuth();
+    if (ok) {
+      bootDone();
+    } else {
+      $id('boot-sub').textContent = 'Bitte anmelden';
+      $id('boot-spinner').style.display = 'none';
+      $id('boot-btn').style.display = 'block';
+    }
+  } catch(e) {
+    $id('boot-err').textContent = e.message;
+    $id('boot-err').style.display = 'block';
+    $id('boot-spinner').style.display = 'none';
+    $id('boot-btn').style.display = 'block';
+  }
+})();
 </script>
 </body>
 </html>
