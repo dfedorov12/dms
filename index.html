@@ -291,9 +291,9 @@ const API       = 'https://graph.microsoft.com/v1.0';
 
 let msalApp, account;
 
-// Identical to Tickets auth
+// Use the registered Tickets redirect URI (dfedorov12.github.io/dms/ is not registered in Azure AD)
 async function initAuth() {
-  const redirectUri = window.location.href.split('?')[0].split('#')[0];
+  const redirectUri = 'https://dfedorov12.github.io/tickets/';
   const cfg = {
     auth:{ clientId:CLIENT_ID, authority:`https://login.microsoftonline.com/${TENANT_ID}`, redirectUri },
     cache:{ cacheLocation:'localStorage', storeAuthStateInCookie:true }
