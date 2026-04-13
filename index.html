@@ -289,12 +289,22 @@ const TENANT_ID = 'fdb70646-023a-403b-a4b9-1f474a935123';
 const SCOPES    = ['User.Read','Sites.Read.All','Sites.ReadWrite.All','Files.ReadWrite.All'];
 const API       = 'https://graph.microsoft.com/v1.0';
 
-const msalApp = new msal.PublicClientApplication({
-  auth:{ clientId:CLIENT_ID, authority:`https://login.microsoftonline.com/${TENANT_ID}`, redirectUri: location.origin+location.pathname },
-  cache:{ cacheLocation:'sessionStorage' }
-});
+let msalApp, account;
 
-let account = null;
+async function initMsal() {
+  const redirectUri = window.location.href.split('?')[0].split('#')[0];
+  const cfg = {
+    auth:{ clientId:CLIENT_ID, authority:`https://login.microsoftonline.com/${TENANT_ID}`, redirectUri },
+    cache:{ cacheLocation:'localStorage', storeAuthStateInCookie:true }
+  };
+  msalApp = new msal.PublicClientApplication(cfg);
+  await msalApp.initialize();
+  await msalApp.handleRedirectPromise();
+  const accounts = msalApp.getAllAccounts();
+  if (accounts.length) { account = accounts[0]; return true; }
+  return false;
+}
+
 let currentDriveId = null;
 let currentFolderId = null; // null = root
 let currentSiteId   = null;
@@ -389,10 +399,8 @@ async function gPatch(path, body) {
 
 // ── BOOT FLOW ────────────────────────────────────────────────────
 (async()=>{
-  await msalApp.initialize();
-  const accounts = msalApp.getAllAccounts();
-  if (accounts.length) {
-    account = accounts[0];
+  const loggedIn = await initMsal();
+  if (loggedIn) {
     bootDone();
   } else {
     $id('boot-sub').textContent='Bitte anmelden.';
