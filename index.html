@@ -291,23 +291,32 @@ const API       = 'https://graph.microsoft.com/v1.0';
 
 let msalApp, account;
 
-// ── MSAL boot (original pattern) ─────────────────────────────────
+// ── MSAL boot ─────────────────────────────────────────────────────
+function bootSub(txt) { const el = document.getElementById('boot-sub'); if(el) el.textContent = txt; }
+function bootSpinner(on) { const el = document.getElementById('boot-spinner'); if(el) el.style.display = on ? 'block' : 'none'; }
+
 async function initApp() {
   bootSub('Initialisiere…');
   bootSpinner(true);
 
-  // Clear stale MSAL interaction_in_progress state that causes infinite hang
-  try {
-    Object.keys(sessionStorage)
-      .filter(k => k.includes('msal') || k.includes('login') || k.includes('interaction'))
-      .forEach(k => sessionStorage.removeItem(k));
-  } catch {}
+  // Clear interaction_in_progress flag only — do NOT clear when a redirect response
+  // is being processed (popup carries auth code in URL hash)
+  const inRedirect = location.href.includes('code=') || location.href.includes('error=');
+  if (!inRedirect) {
+    try {
+      Object.keys(sessionStorage)
+        .filter(k => k.includes('interaction_in_progress'))
+        .forEach(k => sessionStorage.removeItem(k));
+    } catch {}
+  }
 
   const cfg = {
     auth: {
-      clientId:   CLIENT_ID,
-      authority:  `https://login.microsoftonline.com/${TENANT_ID}`,
-      redirectUri: location.href.split('?')[0].split('#')[0]
+      clientId:    CLIENT_ID,
+      authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+      // Use the registered SPA redirect URI from the Tickets app registration.
+      // loginPopup redirects the popup window here; MSAL posts the result back via postMessage.
+      redirectUri: 'https://dfedorov12.github.io/tickets/'
     },
     cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
   };
@@ -317,10 +326,9 @@ async function initApp() {
     await msalApp.initialize();
   } catch(e) {
     bootSpinner(false);
-    const el = $id('boot-err');
-    el.innerHTML = `Initialisierungsfehler: <code>${esc(e.message||e)}</code><br>Redirect-URI <code>${esc(cfg.auth.redirectUri)}</code> muss als SPA in Azure eingetragen sein.`;
-    el.style.display = 'block';
-    $id('boot-btn').style.display = 'block';
+    const el = document.getElementById('boot-err');
+    if(el) { el.textContent = 'Initialisierungsfehler: ' + (e.message||e); el.style.display = 'block'; }
+    document.getElementById('boot-btn').style.display = 'block';
     return;
   }
 
@@ -335,10 +343,8 @@ async function initApp() {
 
   bootSpinner(false);
   bootSub('Bitte mit Microsoft 365 anmelden.');
-  $id('boot-btn').style.display = 'block';
+  document.getElementById('boot-btn').style.display = 'block';
 }
-function bootSub(txt) { $id('boot-sub').textContent = txt; }
-function bootSpinner(on) { $id('boot-spinner').style.display = on ? 'block' : 'none'; }
 
 let currentDriveId = null;
 let currentFolderId = null; // null = root
