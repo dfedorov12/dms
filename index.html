@@ -457,6 +457,7 @@ async function initApp() {
 
   if (accounts.length > 0) {
     account = accounts[0];
+    msalApp.setActiveAccount(account); // required for acquireTokenSilent without explicit account
     bootMsg('Angemeldet als ' + (account.name || account.username || '…'));
     try { bootDone(); } catch(e) { bootErr('Startfehler: ' + e.message); showBootBtn(); }
     return;
@@ -475,6 +476,7 @@ async function doLogin() {
   try {
     const r = await msalApp.loginPopup({scopes:SCOPES, prompt:'select_account'});
     account = r.account;
+    msalApp.setActiveAccount(account);
     bootMsg('Angemeldet ✓ Lade App…');
     bootDone();
   } catch(e) {
