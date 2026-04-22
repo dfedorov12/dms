@@ -424,10 +424,11 @@ async function initApp() {
   try {
     cfg = {
       auth: {
-        clientId:        CLIENT_ID,
-        authority:       `https://login.microsoftonline.com/${TENANT_ID}`,
-        redirectUri,
-        knownAuthorities: ['login.microsoftonline.com']
+        clientId:   CLIENT_ID,
+        // 'common' avoids authority_mismatch: no tenant-ID check against cached account.
+        // acquireTokenSilent still uses the account's actual tenant for the token request.
+        authority:  'https://login.microsoftonline.com/common',
+        redirectUri
       },
       cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
     };
