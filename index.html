@@ -524,20 +524,29 @@ function toast(msg, type='info') {
 
 // ── AUTH ─────────────────────────────────────────────────────────
 async function getToken() {
-  const req = { scopes: SCOPES, account };
+  // Always get account fresh from this MSAL instance to avoid authority_mismatch.
+  // The global `account` was set from getAllAccounts() at boot — its environment
+  // metadata might differ from what acquireTokenSilent expects internally.
+  const liveAccounts = msalApp.getAllAccounts();
+  const liveAccount  = liveAccounts.find(a => a.homeAccountId === account?.homeAccountId)
+                    || liveAccounts[0]
+                    || account;
+  if (!liveAccount) throw new Error('Nicht angemeldet');
+
+  const req = { scopes: SCOPES, account: liveAccount };
   try {
     return (await msalApp.acquireTokenSilent(req)).accessToken;
   } catch(e) {
     // Only open a popup when Azure AD explicitly requires user interaction.
-    // Any other error (network, cache miss) → do NOT open a popup (causes flash).
     const needsInteraction = e && (
       e.name === 'InteractionRequiredAuthError' ||
       (e.message||'').includes('interaction_required') ||
       (e.message||'').includes('consent_required') ||
-      (e.message||'').includes('login_required')
+      (e.message||'').includes('login_required') ||
+      (e.message||'').includes('authority_mismatch')
     );
     if (needsInteraction) {
-      return (await msalApp.acquireTokenPopup(req)).accessToken;
+      return (await msalApp.acquireTokenPopup({ scopes: SCOPES })).accessToken;
     }
     throw e;
   }
