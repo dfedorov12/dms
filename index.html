@@ -424,11 +424,10 @@ async function initApp() {
   try {
     cfg = {
       auth: {
-        clientId:   CLIENT_ID,
-        // 'common' avoids authority_mismatch: no tenant-ID check against cached account.
-        // acquireTokenSilent still uses the account's actual tenant for the token request.
-        authority:  'https://login.microsoftonline.com/common',
-        redirectUri
+        clientId:    CLIENT_ID,
+        authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+        // DMS has its own registered redirect URI — no conflict with Tickets session.
+        redirectUri: 'https://dfedorov12.github.io/dms/'
       },
       cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
     };
@@ -537,26 +536,31 @@ function toast(msg, type='info') {
 let _tokenPopupBusy = false; // prevent concurrent popup (interaction_in_progress)
 
 async function getToken() {
-  // Do NOT pass account → avoids authority_mismatch (MSAL picks from its own cache).
-  const req = { scopes: SCOPES };
+  // Pass both account AND a tenant-specific authority derived from the account itself.
+  // - account:   resolves multiple_matching_tokens (narrows cache lookup)
+  // - authority: matches account's own tenant → no authority_mismatch
+  const tenantId = account?.tenantId || TENANT_ID;
+  const req = {
+    scopes:    SCOPES,
+    account,
+    authority: `https://login.microsoftonline.com/${tenantId}`
+  };
   try {
     return (await msalApp.acquireTokenSilent(req)).accessToken;
   } catch(e) {
-    const msg = (e.message||'');
-    // Only show popup for real user-consent/login errors — NOT for config mismatches.
+    const msg = (e.message || '');
     const needsInteraction = e.name === 'InteractionRequiredAuthError'
       || msg.includes('interaction_required')
       || msg.includes('consent_required')
       || msg.includes('login_required');
     if (!needsInteraction) throw e;
 
-    // Guard: only one popup at a time to avoid interaction_in_progress error.
+    // Guard: only one popup at a time (prevents interaction_in_progress).
     if (_tokenPopupBusy) throw new Error('Bitte warten – Anmeldung läuft…');
     _tokenPopupBusy = true;
     try {
-      // Clear any stale interaction lock before opening popup.
       try { for (const k of Object.keys(sessionStorage)) if (k.includes('interaction_in_progress')) sessionStorage.removeItem(k); } catch {}
-      return (await msalApp.acquireTokenPopup({ scopes: SCOPES })).accessToken;
+      return (await msalApp.acquireTokenPopup({ scopes: SCOPES, account })).accessToken;
     } finally {
       _tokenPopupBusy = false;
     }
