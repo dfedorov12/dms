@@ -1101,13 +1101,23 @@ function posCtxMenu(menu, e) {
 // ════════════════════════════════════════════════════════════════
 let _verItemId = null;
 
+// Helper: item's own driveId (from parentReference) is authoritative.
+// currentDriveId can differ for items in subsites or special libraries.
+function driveIdFor(itemId) {
+  const item = allItems.find(i => i.id === itemId);
+  return item?.parentReference?.driveId || currentDriveId;
+}
+
+let _verDriveId = null; // stored so downloadVersion/restoreVersion know the correct drive
+
 async function openVersionHistory(itemId, itemName) {
-  _verItemId = itemId;
+  _verItemId  = itemId;
+  _verDriveId = driveIdFor(itemId);
   $id('modal-versions').querySelector('.modal-title').textContent = '📋 Versionsverlauf – ' + itemName;
   $id('ver-body').innerHTML = '<div class="empty-state" style="padding:20px;font-size:12px;">Lade Versionen…</div>';
   $id('modal-versions').classList.add('open');
   try {
-    const d = await gGet(`/drives/${currentDriveId}/items/${itemId}/versions?$select=id,lastModifiedDateTime,size,lastModifiedBy&$top=50`);
+    const d = await gGet(`/drives/${_verDriveId}/items/${itemId}/versions?$select=id,lastModifiedDateTime,size,lastModifiedBy&$top=50`);
     const vers = d.value || [];
     if (!vers.length) { $id('ver-body').innerHTML='<div class="empty-state" style="padding:20px;">Keine Versionen gefunden.</div>'; return; }
     $id('ver-body').innerHTML = vers.map((v,i)=>`
@@ -1128,7 +1138,8 @@ async function openVersionHistory(itemId, itemName) {
 async function downloadVersion(itemId, versionId) {
   try {
     const tok = await getToken();
-    const r = await fetch(`${API}/drives/${currentDriveId}/items/${itemId}/versions/${versionId}/content`, {headers:{Authorization:'Bearer '+tok}});
+    const driveId = _verDriveId || driveIdFor(itemId);
+    const r = await fetch(`${API}/drives/${driveId}/items/${itemId}/versions/${versionId}/content`, {headers:{Authorization:'Bearer '+tok}});
     if (!r.ok) throw new Error('HTTP '+r.status);
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
@@ -1141,7 +1152,8 @@ async function restoreVersion(itemId, versionId) {
   if (!confirm('Diese Version wiederherstellen?')) return;
   try {
     const tok = await getToken();
-    const r = await fetch(`${API}/drives/${currentDriveId}/items/${itemId}/versions/${versionId}/restoreVersion`, {method:'POST',headers:{Authorization:'Bearer '+tok}});
+    const driveId = _verDriveId || driveIdFor(itemId);
+    const r = await fetch(`${API}/drives/${driveId}/items/${itemId}/versions/${versionId}/restoreVersion`, {method:'POST',headers:{Authorization:'Bearer '+tok}});
     if (!r.ok && r.status!==204) throw new Error('HTTP '+r.status);
     toast('Version wiederhergestellt ✓','success');
     closeModal('modal-versions');
@@ -1155,14 +1167,15 @@ async function restoreVersion(itemId, versionId) {
 let _permWebUrl = null;
 
 async function openPermissions(itemId, itemName) {
+  const driveId = driveIdFor(itemId);
   $id('modal-perms').querySelector('.modal-title').textContent = '🔐 Berechtigungen – ' + itemName;
   $id('perm-body').innerHTML = '<div class="empty-state" style="padding:20px;font-size:12px;">Lade Berechtigungen…</div>';
   _permWebUrl = null;
   $id('modal-perms').classList.add('open');
   try {
     const [permData, itemData] = await Promise.all([
-      gGet(`/drives/${currentDriveId}/items/${itemId}/permissions`),
-      gGet(`/drives/${currentDriveId}/items/${itemId}?$select=webUrl`)
+      gGet(`/drives/${driveId}/items/${itemId}/permissions`),
+      gGet(`/drives/${driveId}/items/${itemId}?$select=webUrl`)
     ]);
     _permWebUrl = itemData.webUrl || null;
     const perms = permData.value || [];
