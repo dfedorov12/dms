@@ -155,18 +155,15 @@ tr:hover .file-actions{opacity:1;}
 .star-btn:hover{color:#f5a623;}
 .star-btn.active{color:#f5a623;}
 
-/* ── TREE VIEW ── */
-.tree-panel{width:220px;flex-shrink:0;border-right:1.5px solid var(--border);background:#fff;display:none;flex-direction:column;overflow:hidden;}
-.tree-panel.open{display:flex;}
-.tree-panel-hdr{padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
-.tree-body{flex:1;overflow:auto;padding:4px 0;}
-.tree-node{display:flex;align-items:center;gap:0;font-size:11px;cursor:pointer;padding:3px 6px;white-space:nowrap;overflow:hidden;}
+/* ── TREE VIEW (full overlay, explorer-style) ── */
+.tree-node{display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:4px 6px;border-radius:5px;user-select:none;white-space:nowrap;}
 .tree-node:hover{background:var(--blue-bg);}
 .tree-node.active{background:var(--blue-bg);color:var(--blue);font-weight:600;}
-.tree-toggle{width:16px;flex-shrink:0;text-align:center;color:var(--text-dim);font-size:10px;cursor:pointer;user-select:none;}
-.tree-label{overflow:hidden;text-overflow:ellipsis;flex:1;}
-.tree-children{padding-left:16px;}
-.tree-loading{padding:3px 22px;font-size:10px;color:var(--text-dim);}
+.tree-toggle{width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:10px;border-radius:3px;}
+.tree-toggle:hover{background:var(--border);}
+.tree-label{overflow:hidden;text-overflow:ellipsis;flex:1;color:var(--text);}
+.tree-branch{border-left:1.5px solid var(--border);margin-left:9px;padding-left:10px;}
+.tree-loading{padding:6px 10px;font-size:11px;color:var(--text-dim);font-style:italic;}
 
 /* ── VERSION / PERMISSIONS MODAL ── */
 .ver-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;}
@@ -221,8 +218,18 @@ tr:hover .file-actions{opacity:1;}
   </div>
 
   <div class="main">
-    <!-- LEFT SIDEBAR: Favorites + Libraries -->
+    <!-- LEFT SIDEBAR: Sites + Favorites + Libraries -->
     <div class="sidebar">
+      <!-- Sites -->
+      <div class="fav-section" id="sites-section">
+        <div class="fav-hdr" onclick="toggleSitesSection()">
+          <span>🌐 Sites</span><span id="sites-toggle-icon">▾</span>
+        </div>
+        <div class="fav-body" id="sites-body"></div>
+        <div style="padding:4px 8px;border-bottom:1px solid var(--border);">
+          <button class="btn" style="width:100%;font-size:11px;" onclick="openSitePickerModal()">+ Site suchen…</button>
+        </div>
+      </div>
       <!-- Favorites -->
       <div class="fav-section" id="fav-section">
         <div class="fav-hdr" onclick="toggleFavSection()">
@@ -231,23 +238,14 @@ tr:hover .file-actions{opacity:1;}
         <div class="fav-body" id="fav-body"></div>
       </div>
       <!-- Libraries -->
-      <div class="sidebar-hdr" style="display:flex;align-items:center;justify-content:space-between;">
-        <span>Bibliotheken</span>
-        <button class="star-btn" id="site-star-btn" title="Site zu Favoriten" onclick="toggleFavSite(event)">☆</button>
-      </div>
+      <div class="sidebar-hdr">Bibliotheken</div>
       <div class="sidebar-body" id="lib-list">
         <div class="empty-state" style="padding:20px;font-size:11px;">Site wählen →</div>
       </div>
     </div>
 
-    <!-- TREE PANEL -->
-    <div class="tree-panel" id="tree-panel">
-      <div class="tree-panel-hdr">🌲 Ordnerbaum</div>
-      <div class="tree-body" id="tree-body"><div class="tree-loading">Bibliothek wählen…</div></div>
-    </div>
-
-    <!-- RIGHT: File Area -->
-    <div class="file-area drop-zone" id="drop-zone">
+    <!-- RIGHT: File Area (tree overlay is inside) -->
+    <div class="file-area drop-zone" id="drop-zone" style="position:relative;">
       <!-- Breadcrumb -->
       <div class="breadcrumb" id="breadcrumb">
         <span style="color:var(--text-dim);">Bibliothek wählen</span>
@@ -270,6 +268,16 @@ tr:hover .file-actions{opacity:1;}
           <div class="empty-icon">📁</div>
           <div>Bibliothek in der Seitenleiste wählen</div>
         </div>
+      </div>
+
+      <!-- Tree Overlay (full file-area overlay) -->
+      <div id="tree-overlay" style="display:none;position:absolute;inset:0;background:#fff;z-index:50;display:none;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1.5px solid var(--border);background:var(--bg2);flex-shrink:0;">
+          <span style="font-weight:700;font-size:13px;color:var(--navy);">🌲 Ordnerbaum</span>
+          <span id="tree-path" style="font-size:11px;color:var(--text-muted);flex:1;"></span>
+          <button class="btn" onclick="toggleTreePanel()">✕ Schließen</button>
+        </div>
+        <div id="tree-body" style="flex:1;overflow:auto;padding:12px 16px;"></div>
       </div>
 
       <!-- Upload progress -->
@@ -523,32 +531,32 @@ function toast(msg, type='info') {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────────
-async function getToken() {
-  // Always get account fresh from this MSAL instance to avoid authority_mismatch.
-  // The global `account` was set from getAllAccounts() at boot — its environment
-  // metadata might differ from what acquireTokenSilent expects internally.
-  const liveAccounts = msalApp.getAllAccounts();
-  const liveAccount  = liveAccounts.find(a => a.homeAccountId === account?.homeAccountId)
-                    || liveAccounts[0]
-                    || account;
-  if (!liveAccount) throw new Error('Nicht angemeldet');
+let _tokenPopupBusy = false; // prevent concurrent popup (interaction_in_progress)
 
-  const req = { scopes: SCOPES, account: liveAccount };
+async function getToken() {
+  // Do NOT pass account → avoids authority_mismatch (MSAL picks from its own cache).
+  const req = { scopes: SCOPES };
   try {
     return (await msalApp.acquireTokenSilent(req)).accessToken;
   } catch(e) {
-    // Only open a popup when Azure AD explicitly requires user interaction.
-    const needsInteraction = e && (
-      e.name === 'InteractionRequiredAuthError' ||
-      (e.message||'').includes('interaction_required') ||
-      (e.message||'').includes('consent_required') ||
-      (e.message||'').includes('login_required') ||
-      (e.message||'').includes('authority_mismatch')
-    );
-    if (needsInteraction) {
+    const msg = (e.message||'');
+    // Only show popup for real user-consent/login errors — NOT for config mismatches.
+    const needsInteraction = e.name === 'InteractionRequiredAuthError'
+      || msg.includes('interaction_required')
+      || msg.includes('consent_required')
+      || msg.includes('login_required');
+    if (!needsInteraction) throw e;
+
+    // Guard: only one popup at a time to avoid interaction_in_progress error.
+    if (_tokenPopupBusy) throw new Error('Bitte warten – Anmeldung läuft…');
+    _tokenPopupBusy = true;
+    try {
+      // Clear any stale interaction lock before opening popup.
+      try { for (const k of Object.keys(sessionStorage)) if (k.includes('interaction_in_progress')) sessionStorage.removeItem(k); } catch {}
       return (await msalApp.acquireTokenPopup({ scopes: SCOPES })).accessToken;
+    } finally {
+      _tokenPopupBusy = false;
     }
-    throw e;
   }
 }
 function bootDone() {
@@ -596,27 +604,27 @@ async function loadDefaultSite() {
   }
 }
 
-async function selectSite(siteId, name) {
+async function selectSite(siteId, name, webUrl) {
   currentSiteId = siteId;
   currentSiteName = name;
   $id('hdr-site-name').textContent = name;
   currentDriveId = null;
   currentFolderId = null;
   breadcrumbs = [];
-  updateStarButtons();
+  // Save to recent sites
+  addRecentSite(siteId, name, webUrl||'');
+  renderSitesSection();
   $id('lib-list').innerHTML='<div class="site-item"><span class="site-icon">⏳</span>Lade Bibliotheken…</div>';
   try {
     const d = await gGet(`/sites/${siteId}/drives`);
     const drives = (d.value||[]).filter(dr=>dr.driveType!=='personal');
-    const fav = loadFavorites();
-    $id('lib-list').innerHTML = drives.map(dr=>{
-      const isFav = fav.drives.some(f=>f.id===dr.id);
-      return `<div class="lib-item" id="lib-${dr.id}" onclick="selectDrive('${dr.id}','${esc(dr.name)}')">
+    $id('lib-list').innerHTML = drives.map(dr=>`
+      <div class="lib-item" id="lib-${dr.id}"
+        onclick="selectDrive('${dr.id}','${esc(dr.name)}')"
+        oncontextmenu="showLibCtxMenu(event,'${dr.id}','${esc(dr.name)}')">
         <span>📚</span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(dr.name)}</span>
-        <button class="star-btn${isFav?' active':''}" onclick="toggleFavDrive(event,'${dr.id}','${esc(dr.name)}')" title="Bibliothek zu Favoriten">${isFav?'★':'☆'}</button>
-      </div>`;
-    }).join('') || '<div class="empty-state" style="padding:12px;font-size:11px;">Keine Bibliotheken</div>';
+      </div>`).join('') || '<div class="empty-state" style="padding:12px;font-size:11px;">Keine Bibliotheken</div>';
   } catch(e) {
     $id('lib-list').innerHTML=`<div class="empty-state" style="padding:12px;font-size:11px;color:var(--red);">Fehler: ${esc(e.message)}</div>`;
   }
@@ -895,20 +903,21 @@ async function downloadFile(id, name) {
 // ── CONTEXT MENU ─────────────────────────────────────────────────
 function showCtxMenu(e, id, name, isFolder) {
   e.preventDefault();
+  const fav = loadFavorites();
+  const isFolderFav = isFolder && fav.folders && fav.folders.some(f=>f.id===id);
   const menu = $id('ctx-menu');
   menu.innerHTML = [
     isFolder ? `<div class="ctx-item" onclick="openFolder('${id}','${name}');hideCtxMenu()">📂 Öffnen</div>` : '',
     !isFolder ? `<div class="ctx-item" onclick="downloadFile('${id}','${name}');hideCtxMenu()">⬇ Herunterladen</div>` : '',
     !isFolder ? `<div class="ctx-item" onclick="window.open(allItems.find(i=>i.id==='${id}')?.webUrl,'_blank');hideCtxMenu()">↗ In SharePoint öffnen</div>` : '',
     !isFolder ? `<div class="ctx-item" onclick="openVersionHistory('${id}','${name}');hideCtxMenu()">📋 Versionsverlauf</div>` : '',
+    isFolder  ? `<div class="ctx-item" onclick="toggleFavItem('folder','${id}','${esc(name)}',{siteId:'${esc(currentSiteId||'')}',siteName:'${esc(currentSiteName||'')}',driveId:'${esc(currentDriveId||'')}'});hideCtxMenu()">${isFolderFav?'✕ Aus Favoriten':'⭐ Zu Favoriten'}</div>` : '',
     `<div class="ctx-item" onclick="openPermissions('${id}','${name}');hideCtxMenu()">🔐 Berechtigungen</div>`,
     '<div class="ctx-sep"></div>',
     `<div class="ctx-item" onclick="openRename('${id}','${name}');hideCtxMenu()">✏ Umbenennen</div>`,
     `<div class="ctx-item danger" onclick="deleteItem('${id}','${name}',${isFolder});hideCtxMenu()">🗑 Löschen</div>`,
   ].join('');
-  menu.style.display='block';
-  menu.style.left = Math.min(e.clientX, window.innerWidth-180)+'px';
-  menu.style.top  = Math.min(e.clientY, window.innerHeight-180)+'px';
+  posCtxMenu(menu, e);
 }
 function hideCtxMenu() { $id('ctx-menu').style.display='none'; }
 document.addEventListener('click', hideCtxMenu);
@@ -940,7 +949,8 @@ async function searchSites(q) {
         return;
       }
       $id('site-results').innerHTML = sites.map(s=>`
-        <div class="site-item" onclick="pickSite('${esc(s.id)}','${esc(s.displayName||'')}')">
+        <div class="site-item" onclick="pickSite('${esc(s.id)}','${esc(s.displayName||'')}','${esc(s.webUrl||'')}')"
+          oncontextmenu="showSiteCtxMenu(event,'${esc(s.id)}','${esc(s.displayName||'')}','${esc(s.webUrl||'')}')">
           <span class="site-icon">🌐</span>
           <div>
             <div style="font-weight:600;">${esc(s.displayName||'')}</div>
@@ -953,98 +963,130 @@ async function searchSites(q) {
   }, 350);
 }
 
-async function pickSite(id, name) {
+async function pickSite(id, name, webUrl) {
   closeModal('modal-site');
-  await selectSite(id, name);
+  await selectSite(id, name, webUrl);
 }
 
 // ════════════════════════════════════════════════════════════════
-// FAVORITES
+// FAVORITES + RECENT SITES
 // ════════════════════════════════════════════════════════════════
-const FAV_KEY = 'dihag_dms_favorites';
-let _favOpen = true;
-let _currentSpWebUrl = null; // for permissions link
+const FAV_KEY    = 'dihag_dms_favorites';
+const SITES_KEY  = 'dihag_dms_recent_sites';
+let _favOpen   = true;
+let _sitesOpen = true;
 
-function loadFavorites() { try { return JSON.parse(localStorage.getItem(FAV_KEY)||'{"sites":[],"drives":[]}'); } catch { return {sites:[],drives:[]}; } }
+function loadFavorites() { try { return JSON.parse(localStorage.getItem(FAV_KEY)||'{"sites":[],"drives":[],"folders":[]}'); } catch { return {sites:[],drives:[],folders:[]}; } }
 function saveFavorites(fav) { localStorage.setItem(FAV_KEY, JSON.stringify(fav)); }
+function loadRecentSites() { try { return JSON.parse(localStorage.getItem(SITES_KEY)||'[]'); } catch { return []; } }
+function addRecentSite(id, name, url) {
+  let r = loadRecentSites().filter(s=>s.id!==id);
+  r.unshift({id, name, url});
+  r = r.slice(0,10);
+  localStorage.setItem(SITES_KEY, JSON.stringify(r));
+}
+
+function renderSitesSection() {
+  const body = $id('sites-body');
+  if (!body) return;
+  const sites = loadRecentSites();
+  const fav = loadFavorites();
+  if (!sites.length) { body.innerHTML='<div style="padding:8px 12px;font-size:11px;color:var(--text-dim);">Noch keine Sites besucht.</div>'; return; }
+  body.innerHTML = sites.map(s=>{
+    const isFav = fav.sites.some(f=>f.id===s.id);
+    const isActive = s.id===currentSiteId;
+    return `<div class="fav-item${isActive?' active':''}"
+      onclick="selectSite('${esc(s.id)}','${esc(s.name)}','${esc(s.url||'')}')"
+      oncontextmenu="showSiteCtxMenu(event,'${esc(s.id)}','${esc(s.name)}','${esc(s.url||'')}')">
+      <span style="font-size:13px;">${isFav?'⭐':'🌐'}</span>
+      <span class="fav-item-label" title="${esc(s.name)}">${esc(s.name)}</span>
+    </div>`;
+  }).join('');
+}
 
 function renderFavorites() {
   const fav = loadFavorites();
   const body = $id('fav-body');
   if (!body) return;
   const all = [
-    ...fav.sites.map(s=>({type:'site', ...s})),
-    ...fav.drives.map(d=>({type:'drive', ...d}))
+    ...fav.sites.map(s=>({type:'site',...s})),
+    ...fav.drives.map(d=>({type:'drive',...d})),
+    ...fav.folders.map(f=>({type:'folder',...f}))
   ];
-  if (!all.length) {
-    body.innerHTML='<div style="padding:8px 12px;font-size:11px;color:var(--text-dim);">Noch keine Favoriten. ☆ anklicken.</div>';
-    return;
-  }
+  if (!all.length) { body.innerHTML='<div style="padding:8px 12px;font-size:11px;color:var(--text-dim);">Rechtsklick auf Site/Bibliothek/Ordner → Favorit.</div>'; return; }
   body.innerHTML = all.map(f=>`
     <div class="fav-item">
-      <span style="font-size:13px;">${f.type==='site'?'🌐':'📚'}</span>
-      <span class="fav-item-label" onclick="${f.type==='site'?`pickFav('site','${esc(f.id)}','${esc(f.name)}')`:`pickFav('drive','${esc(f.id)}','${esc(f.name)}','${esc(f.siteId||'')}','${esc(f.siteName||'')}')` }" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span style="font-size:13px;">${f.type==='site'?'🌐':f.type==='drive'?'📚':'📁'}</span>
+      <span class="fav-item-label" onclick="pickFav('${f.type}','${esc(f.id)}','${esc(f.name)}','${esc(f.siteId||'')}','${esc(f.siteName||'')}','${esc(f.driveId||'')}')" title="${esc(f.name)}">${esc(f.name)}</span>
       <button class="fav-rm" onclick="removeFavorite('${f.type}','${esc(f.id)}')" title="Entfernen">✕</button>
     </div>`).join('');
 }
 
-async function pickFav(type, id, name, siteId, siteName) {
-  if (type==='site') {
-    await selectSite(id, name);
-  } else {
-    if (siteId && siteName) await selectSite(siteId, siteName);
-    await selectDrive(id, name);
+async function pickFav(type, id, name, siteId, siteName, driveId) {
+  if (type==='site') { await selectSite(id, name); }
+  else if (type==='drive') { if (siteId&&siteName) await selectSite(siteId,siteName); await selectDrive(id,name); }
+  else if (type==='folder') {
+    if (siteId&&siteName) await selectSite(siteId,siteName);
+    if (driveId) await selectDrive(driveId, '');
+    breadcrumbs.push({id,name});
+    await loadFolder(id);
   }
 }
 
-function removeFavorite(type, id) {
+function toggleFavItem(type, id, name, extra={}) {
   const fav = loadFavorites();
-  if (type==='site') fav.sites = fav.sites.filter(s=>s.id!==id);
-  else               fav.drives = fav.drives.filter(d=>d.id!==id);
+  if (!fav.folders) fav.folders=[];
+  const arr = type==='site'?fav.sites:type==='drive'?fav.drives:fav.folders;
+  const idx = arr.findIndex(x=>x.id===id);
+  if (idx>=0) arr.splice(idx,1);
+  else arr.push({id, name, ...extra});
   saveFavorites(fav);
   renderFavorites();
-  updateStarButtons();
+  renderSitesSection();
 }
 
-function toggleFavSite(e) {
-  e.stopPropagation();
-  if (!currentSiteId) return;
-  const fav = loadFavorites();
-  const exists = fav.sites.find(s=>s.id===currentSiteId);
-  if (exists) fav.sites = fav.sites.filter(s=>s.id!==currentSiteId);
-  else        fav.sites.push({id:currentSiteId, name:currentSiteName});
-  saveFavorites(fav);
-  renderFavorites();
-  updateStarButtons();
-}
-
-function toggleFavDrive(e, driveId, driveName) {
-  e.stopPropagation();
-  const fav = loadFavorites();
-  const exists = fav.drives.find(d=>d.id===driveId);
-  if (exists) fav.drives = fav.drives.filter(d=>d.id!==driveId);
-  else        fav.drives.push({id:driveId, name:driveName, siteId:currentSiteId, siteName:currentSiteName});
-  saveFavorites(fav);
-  renderFavorites();
-  updateStarButtons();
-}
-
-function updateStarButtons() {
-  const fav = loadFavorites();
-  const siteBtn = $id('site-star-btn');
-  if (siteBtn) {
-    const active = fav.sites.some(s=>s.id===currentSiteId);
-    siteBtn.textContent = active ? '★' : '☆';
-    siteBtn.classList.toggle('active', active);
-  }
-}
+function removeFavorite(type,id) { toggleFavItem(type,id,''); }
 
 function toggleFavSection() {
-  _favOpen = !_favOpen;
-  const body = $id('fav-body');
-  if (body) body.style.display = _favOpen ? '' : 'none';
-  const icon = $id('fav-toggle-icon');
-  if (icon) icon.textContent = _favOpen ? '▾' : '▸';
+  _favOpen=!_favOpen;
+  const b=$id('fav-body'); if(b) b.style.display=_favOpen?'':'none';
+  const i=$id('fav-toggle-icon'); if(i) i.textContent=_favOpen?'▾':'▸';
+}
+function toggleSitesSection() {
+  _sitesOpen=!_sitesOpen;
+  const b=$id('sites-body'); if(b) b.style.display=_sitesOpen?'':'none';
+  const i=$id('sites-toggle-icon'); if(i) i.textContent=_sitesOpen?'▾':'▸';
+}
+
+// ── CONTEXT MENUS ─────────────────────────────────────────────────
+function showSiteCtxMenu(e, siteId, siteName, siteUrl) {
+  e.preventDefault();
+  const fav = loadFavorites();
+  const isFav = fav.sites.some(s=>s.id===siteId);
+  const menu = $id('ctx-menu');
+  menu.innerHTML = [
+    `<div class="ctx-item" onclick="selectSite('${esc(siteId)}','${esc(siteName)}','${esc(siteUrl)}');hideCtxMenu()">🌐 Öffnen</div>`,
+    `<div class="ctx-item" onclick="toggleFavItem('site','${esc(siteId)}','${esc(siteName)}');hideCtxMenu()">${isFav?'✕ Aus Favoriten':'⭐ Zu Favoriten'}</div>`,
+  ].join('');
+  posCtxMenu(menu, e);
+}
+
+function showLibCtxMenu(e, driveId, driveName) {
+  e.preventDefault();
+  const fav = loadFavorites();
+  const isFav = fav.drives.some(d=>d.id===driveId);
+  const menu = $id('ctx-menu');
+  menu.innerHTML = [
+    `<div class="ctx-item" onclick="selectDrive('${esc(driveId)}','${esc(driveName)}');hideCtxMenu()">📚 Öffnen</div>`,
+    `<div class="ctx-item" onclick="toggleFavItem('drive','${esc(driveId)}','${esc(driveName)}',{siteId:'${esc(currentSiteId||'')}',siteName:'${esc(currentSiteName||'')}' });hideCtxMenu()">${isFav?'✕ Aus Favoriten':'⭐ Zu Favoriten'}</div>`,
+  ].join('');
+  posCtxMenu(menu, e);
+}
+
+function posCtxMenu(menu, e) {
+  menu.style.display='block';
+  menu.style.left=Math.min(e.clientX,window.innerWidth-200)+'px';
+  menu.style.top=Math.min(e.clientY,window.innerHeight-200)+'px';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1139,81 +1181,116 @@ function openSpPermissions() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// TREE VIEW
+// TREE VIEW (full overlay over file-area)
 // ════════════════════════════════════════════════════════════════
 let _treeOpen = false;
-let _treeData = {}; // itemId → {loaded, children}
+let _treeData = {};
 
 function toggleTreePanel() {
   _treeOpen = !_treeOpen;
-  const panel = $id('tree-panel');
-  panel.classList.toggle('open', _treeOpen);
+  const ov = $id('tree-overlay');
+  if (ov) ov.style.display = _treeOpen ? 'flex' : 'none';
   const btn = $id('btn-tree');
-  if (btn) { btn.style.background = _treeOpen ? 'var(--blue-bg)' : ''; btn.style.color = _treeOpen ? 'var(--blue)' : ''; btn.style.borderColor = _treeOpen ? 'var(--blue)' : ''; }
-  if (_treeOpen && currentDriveId) buildTree();
+  if (btn) {
+    btn.style.background   = _treeOpen ? 'var(--blue-bg)' : '';
+    btn.style.color        = _treeOpen ? 'var(--blue)' : '';
+    btn.style.borderColor  = _treeOpen ? 'var(--blue)' : '';
+  }
+  if (_treeOpen) {
+    const lib = breadcrumbs[0]?.name || currentSiteName || '';
+    const tp = $id('tree-path');
+    if (tp) tp.textContent = lib;
+    if (currentDriveId) buildTree(); else { const b=$id('tree-body'); if(b) b.innerHTML='<div class="tree-loading">Bitte zuerst eine Bibliothek wählen.</div>'; }
+  }
 }
 
 async function buildTree() {
   _treeData = {};
   const body = $id('tree-body');
-  body.innerHTML = '<div class="tree-loading">Lade Baum…</div>';
+  if (!body) return;
+  body.innerHTML = '<div class="tree-loading">Lade Ordnerbaum…</div>';
   try {
     const root = await loadTreeChildren(null);
-    renderTree(body, root, 0);
-  } catch(e) { body.innerHTML = `<div class="tree-loading" style="color:var(--red);">Fehler: ${esc(e.message)}</div>`; }
+    if (!root.length) { body.innerHTML='<div class="tree-loading">Keine Unterordner vorhanden.</div>'; return; }
+    body.innerHTML = '';
+    renderTreeNodes(body, root);
+  } catch(e) { body.innerHTML=`<div class="tree-loading" style="color:var(--red);">Fehler: ${esc(e.message)}</div>`; }
 }
 
 async function loadTreeChildren(folderId) {
-  const path = folderId
-    ? `/drives/${currentDriveId}/items/${folderId}/children?$filter=folder ne null&$select=id,name,folder&$top=100`
-    : `/drives/${currentDriveId}/root/children?$filter=folder ne null&$select=id,name,folder&$top=100`;
-  const d = await gGet(path);
-  return (d.value||[]);
+  const base = folderId
+    ? `/drives/${currentDriveId}/items/${folderId}/children`
+    : `/drives/${currentDriveId}/root/children`;
+  const d = await gGet(base+'?$select=id,name,folder&$top=200&$filter=folder ne null&$orderby=name');
+  return d.value||[];
 }
 
-function renderTree(container, folders, depth) {
-  if (!folders.length) { container.innerHTML = depth===0 ? '<div class="tree-loading">Keine Unterordner</div>' : ''; return; }
-  container.innerHTML = folders.map(f=>`
-    <div class="tree-children">
-      <div class="tree-node${currentFolderId===f.id?' active':''}" id="tree-${f.id}">
-        <span class="tree-toggle" id="tree-tog-${f.id}" onclick="expandTreeNode(event,'${f.id}')">▶</span>
-        <span style="font-size:12px;margin-right:4px;">📁</span>
-        <span class="tree-label" onclick="treeNavigate('${f.id}','${esc(f.name)}')" title="${esc(f.name)}">${esc(f.name)}</span>
-      </div>
-      <div id="tree-ch-${f.id}" style="display:none;"></div>
-    </div>`).join('');
+function renderTreeNodes(container, folders) {
+  folders.forEach(f => {
+    const nodeWrap = document.createElement('div');
+
+    const nodeRow = document.createElement('div');
+    nodeRow.className = 'tree-node' + (currentFolderId===f.id?' active':'');
+    nodeRow.id = 'tree-'+f.id;
+
+    const tog = document.createElement('span');
+    tog.className = 'tree-toggle';
+    tog.id = 'tree-tog-'+f.id;
+    tog.textContent = '▶';
+    tog.onclick = ev => { ev.stopPropagation(); expandTreeNode(f.id); };
+
+    const icon = document.createElement('span');
+    icon.textContent = '📁';
+    icon.style.fontSize = '13px';
+
+    const label = document.createElement('span');
+    label.className = 'tree-label';
+    label.textContent = f.name;
+    label.title = f.name;
+    label.onclick = () => treeNavigate(f.id, f.name);
+
+    nodeRow.append(tog, icon, label);
+    nodeWrap.append(nodeRow);
+
+    const children = document.createElement('div');
+    children.id = 'tree-ch-'+f.id;
+    children.className = 'tree-branch';
+    children.style.display = 'none';
+    nodeWrap.append(children);
+
+    container.append(nodeWrap);
+  });
 }
 
-async function expandTreeNode(e, folderId) {
-  e.stopPropagation();
+async function expandTreeNode(folderId) {
   const tog = $id('tree-tog-'+folderId);
   const ch  = $id('tree-ch-'+folderId);
   if (!tog || !ch) return;
-  if (ch.style.display==='none') {
-    tog.textContent = '▼';
-    ch.style.display = '';
-    if (!_treeData[folderId]) {
-      ch.innerHTML = '<div class="tree-loading">Lade…</div>';
-      try {
-        const children = await loadTreeChildren(folderId);
-        _treeData[folderId] = children;
-        renderTree(ch, children, 1);
-      } catch { ch.innerHTML = '<div class="tree-loading" style="color:var(--red);">Fehler</div>'; }
-    }
-  } else {
-    tog.textContent = '▶';
-    ch.style.display = 'none';
+  const isOpen = ch.style.display !== 'none';
+  if (isOpen) { tog.textContent='▶'; ch.style.display='none'; return; }
+  tog.textContent = '▼';
+  ch.style.display = '';
+  if (!_treeData[folderId]) {
+    ch.innerHTML = '<div class="tree-loading">Lade…</div>';
+    try {
+      const children = await loadTreeChildren(folderId);
+      _treeData[folderId] = children;
+      ch.innerHTML = '';
+      if (children.length) renderTreeNodes(ch, children);
+      else ch.innerHTML = '<div class="tree-loading" style="color:var(--text-dim);">Keine Unterordner</div>';
+    } catch { ch.innerHTML='<div class="tree-loading" style="color:var(--red);">Fehler</div>'; }
   }
 }
 
 async function treeNavigate(folderId, folderName) {
-  // Highlight active
   document.querySelectorAll('.tree-node.active').forEach(n=>n.classList.remove('active'));
   const node = $id('tree-'+folderId);
   if (node) node.classList.add('active');
-  // Navigate
-  if (!breadcrumbs.find(b=>b.id===folderId)) breadcrumbs.push({id:folderId, name:folderName});
+  breadcrumbs = breadcrumbs.slice(0,1);
+  breadcrumbs.push({id:folderId, name:folderName});
   await loadFolder(folderId);
+  // Close tree after navigation for cleaner UX
+  toggleTreePanel();
 }
 
 // ── MODAL ────────────────────────────────────────────────────────
@@ -1228,6 +1305,7 @@ document.querySelectorAll('.modal-ov').forEach(ov=>{
 // BOOT — identical pattern to Tickets app
 // ════════════════════════════════════════════════════════════════
 renderFavorites();
+renderSitesSection();
 initApp();
 </script>
 </body>
