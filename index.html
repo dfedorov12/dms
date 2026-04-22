@@ -192,6 +192,29 @@ tr:hover .file-actions{opacity:1;}
   <div id="boot-hint" style="display:none;font-size:11px;color:var(--text-muted);margin-top:6px;">Falls der Spinner hängt: Popup-Blocker prüfen · <a href="javascript:location.reload()" style="color:var(--blue);">Seite neu laden</a></div>
 </div>
 
+<!-- NO ACCESS -->
+<div id="no-access" style="display:none;position:fixed;inset:0;background:#0f1117;align-items:center;justify-content:center;z-index:9999;">
+  <div style="text-align:center;max-width:440px;padding:40px;background:#1a1d27;border:1px solid #2a2d3e;border-radius:16px;font-family:'Segoe UI',system-ui,sans-serif;">
+    <div style="font-size:56px;margin-bottom:16px">🚫</div>
+    <h2 style="font-size:22px;color:#e2e4ed;margin-bottom:8px;font-weight:700">Kein Zugriff</h2>
+    <p id="nac-msg" style="color:#6b7090;margin-bottom:24px;font-size:14px;line-height:1.6"></p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+      <button id="nac-req-btn" onclick="requestAccess()"
+        style="padding:9px 20px;background:#4f8ef7;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">
+        📧 Freigabe anfragen
+      </button>
+      <button onclick="doLogout()"
+        style="padding:9px 20px;background:#1a1d27;color:#e2e4ed;border:1.5px solid #2a2d3e;border-radius:8px;font-size:14px;cursor:pointer;">
+        Abmelden
+      </button>
+    </div>
+    <p id="nac-sent" style="display:none;color:#4caf7d;margin-top:16px;font-size:13px;font-weight:500">
+      ✓ Anfrage wurde versendet. Die IT meldet sich bei dir.
+    </p>
+    <p id="nac-err" style="display:none;color:#e05c5c;margin-top:12px;font-size:12px"></p>
+  </div>
+</div>
+
 <!-- APP -->
 <div id="app" style="display:none;flex-direction:column;height:100vh;">
   <header>
@@ -566,12 +589,105 @@ async function getToken() {
     }
   }
 }
-function bootDone() {
+async function bootDone() {
+  bootMsg('Prüfe Berechtigungen…');
+  const email = (account?.username || '').toLowerCase();
+  const role  = await checkPerm('dms', email);
+  if (role === 'none') { showNoAccess(email); return; }
+  window._appRole = role;
   $id('boot').style.display='none';
   $id('app').style.display='flex';
   $id('hdr-av').textContent = (account?.name||'?').split(' ').map(n=>n[0]||'').join('').substring(0,2).toUpperCase();
   // Load default site (IT)
   loadDefaultSite();
+}
+
+/* ── PERMISSION CHECK ─────────────────────────────────────────────── */
+const PERM_SITE = 'dihag.sharepoint.com:/sites/ticket';
+const PERM_LIST = 'AppPermissions';
+let _pSiteId = null, _pListId = null;
+
+async function checkPerm(appName, userEmail) {
+  try {
+    if (!_pSiteId) {
+      const s = await gGet(`/sites/${PERM_SITE}`);
+      _pSiteId = s.id;
+    }
+    if (!_pListId) {
+      try {
+        const l = await gGet(`/sites/${_pSiteId}/lists/${PERM_LIST}`);
+        _pListId = l.id;
+      } catch { return 'none'; }
+    }
+    const data = await gGet(`/sites/${_pSiteId}/lists/${_pListId}/items?$expand=fields&$top=999`);
+    const RANK = { admin: 3, editor: 2, viewer: 1, none: 0 };
+    let best = -1;
+    for (const item of (data.value || [])) {
+      const f = item.fields || {};
+      if ((f.UserEmail||'').toLowerCase() === userEmail) {
+        if (f.App === appName || f.App === '*') {
+          best = Math.max(best, RANK[f.Role] ?? 0);
+        }
+      }
+    }
+    if (best === -1) return 'none';
+    return Object.keys(RANK).find(k => RANK[k] === best) || 'none';
+  } catch(e) {
+    console.warn('[checkPerm]', e.message);
+    return 'none';
+  }
+}
+
+function showNoAccess(email) {
+  $id('boot').style.display = 'none';
+  const el = $id('no-access');
+  el.style.display = 'flex';
+  $id('nac-msg').textContent =
+    `Du (${email}) hast aktuell keinen Zugriff auf das DMS. ` +
+    `Stelle eine Anfrage — die IT schaltet dich frei.`;
+}
+
+async function requestAccess() {
+  const btn = $id('nac-req-btn');
+  btn.disabled = true; btn.textContent = '…';
+  const email = account?.username || '';
+  const name  = account?.name || email;
+  const now   = new Date().toLocaleString('de-DE');
+  try {
+    const tok = await getToken();
+    await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: {
+          subject: `Freigabe-Anfrage: DMS – ${name}`,
+          body: {
+            contentType: 'HTML',
+            content: `<p>Hallo IT-Team,</p>
+<p>folgende Person beantragt Zugriff auf das <strong>DIHAG DMS</strong>:</p>
+<table style="border-collapse:collapse;font-size:14px;font-family:sans-serif">
+  <tr><td style="padding:4px 12px 4px 0;color:#666">Name</td><td><strong>${name}</strong></td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#666">E-Mail</td><td>${email}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#666">App</td><td>DMS</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#666">Datum</td><td>${now}</td></tr>
+</table>
+<p style="margin-top:16px">Freigabe im <a href="https://dfedorov12.github.io/admin/">Admin-Portal</a> erteilen.</p>
+<p style="color:#888;font-size:12px">Diese Nachricht wurde automatisch vom DIHAG DMS gesendet.</p>`
+          },
+          toRecipients: [{ emailAddress: { address: 'ticket@dihag.com' } }]
+        },
+        saveToSentItems: false
+      })
+    }).then(async r => {
+      if (!r.ok) throw new Error(`${r.status}: ${await r.text().catch(()=>'')}`);
+    });
+    $id('nac-sent').style.display = 'block';
+    $id('nac-req-btn').style.display = 'none';
+  } catch(e) {
+    $id('nac-err').style.display = 'block';
+    $id('nac-err').textContent = `Fehler: ${e.message}`;
+    btn.disabled = false; btn.textContent = '📧 Freigabe anfragen';
+  }
 }
 
 // ── GRAPH API ────────────────────────────────────────────────────
